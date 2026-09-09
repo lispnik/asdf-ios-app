@@ -22,3 +22,9 @@ aot/
 
 # example build output
 examples/*/build/
+
+# ...except the module-directory fixture, which is nothing but empty files
+# named the way a real ECL prefix names its modules. The point of the test is
+# that a module is recognised under every spelling it has, so the spellings
+# have to survive a clone.
+!tests/fixture/modules/*
