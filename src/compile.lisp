@@ -74,7 +74,21 @@ mixes GET-UNIVERSAL-TIME into it -- and emits a stable WRAPPER carrying the
 ;;; compiling
 
 (defun object-path (source cache)
-  (make-pathname :name (pathname-name source) :type "o" :defaults cache))
+  "Where SOURCE's object goes.
+
+The name carries a hash of the source's full path, because basenames are not
+unique across a dependency closure and a collision here is silent and awful.
+Alexandria is the example that found it: it ships alexandria-1 and
+alexandria-2, each with its own package.lisp, arrays.lisp, lists.lisp and more.
+Keyed on the basename alone, the second package.o overwrote the first, the
+archive never defined ALEXANDRIA.1.0.0, and the app died at boot complaining
+about a package rather than about a build."
+  (make-pathname :name (format nil "~a-~(~8,'0x~)"
+                               (pathname-name source)
+                               (logand (sxhash (namestring (truename source)))
+                                       #xffffffff))
+                 :type "o"
+                 :defaults cache))
 
 (defun cross-compile-file (source cache)
   "Compile one source file to an iOS object.

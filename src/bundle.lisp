@@ -174,3 +174,107 @@ Reduce to the leading numeric components."
     (with-open-file (s path :direction :output :if-exists :supersede)
       (write-string "APPL????" s))
     path))
+
+;;; ------------------------------------------------------------------
+;;; staging
+;;;
+;;; Everything is assembled off to one side and moved into place at the end.
+;;; A failed build must not leave a half-written .app that the simulator will
+;;; happily try to install.
+
+(defun files-under (directory)
+  (let ((files '()))
+    (uiop:collect-sub*directories
+     (uiop:ensure-directory-pathname directory)
+     (constantly t) (constantly t)
+     (lambda (d) (setf files (append files (uiop:directory-files d)))))
+    files))
+
+(defun sibling-directory (path suffix)
+  (let* ((path (uiop:ensure-directory-pathname path))
+         (parent (uiop:pathname-parent-directory-pathname path))
+         (name (car (last (pathname-directory path)))))
+    (uiop:subpathname parent (concatenate 'string name suffix "/"))))
+
+(defun unique-suffix (tag)
+  (format nil ".~a-~36r" tag (random (expt 36 8) (make-random-state t))))
+
+(defun mv (from to)
+  "Move a directory. rename(2) is atomic, which is the point of the staging
+scheme; it only fails across filesystems, and staging, trash and target are
+always siblings. /bin/mv is the fallback for that case."
+  (let ((from (string-right-trim "/" (uiop:native-namestring from)))
+        (to (string-right-trim "/" (uiop:native-namestring to))))
+    (run (list "/bin/mv" from to))
+    t))
+
+(defun empty-bundle-stub-p (bundle)
+  "True for a bare directory that a failed build left at the destination.
+Deliberately strict: this predicate authorises deleting a tree, so it demands
+the tree hold no files whatsoever."
+  (let ((bundle (uiop:ensure-directory-pathname bundle)))
+    (and (uiop:directory-exists-p bundle)
+         (null (files-under bundle)))))
+
+(defun commit-bundle (staging final)
+  "Move STAGING onto FINAL. The previous bundle is set aside first, so a
+failure here leaves the old one intact rather than nothing at all."
+  (let ((trash (and (probe-file final)
+                    (sibling-directory final (unique-suffix "trash")))))
+    (when trash (mv final trash))
+    (handler-bind ((error (lambda (e)
+                            (declare (ignore e))
+                            (when trash (ignore-errors (mv trash final))))))
+      (mv staging final))
+    (when trash (ignore-errors (uiop:delete-directory-tree trash :validate t)))
+    final))
+
+;;; ------------------------------------------------------------------
+;;; resources
+
+(defparameter +reserved-bundle-names+
+  '("Info.plist" "PkgInfo" "embedded.mobileprovision" "Assets.car"
+    "_CodeSignature" "lisp")
+  "Names a resource may not take.
+
+Longer than the macOS sibling's list, and it has to be: an iOS bundle is flat,
+so a resource called Info.plist does not land somewhere harmless inside
+Resources/, it lands ON the Info.plist.")
+
+(defun check-resource-destination (spec destination)
+  (let ((name (car (last (uiop:split-string destination :separator "/")))))
+    (declare (ignorable name))
+    (when (search ".." destination)
+      (barf "Resource destination ~s escapes the bundle." destination))
+    (when (and (plusp (length destination)) (char= #\/ (char destination 0)))
+      (barf "Resource destination ~s must be relative." destination))
+    (let ((first-component (first (uiop:split-string destination :separator "/"))))
+      (when (member first-component +reserved-bundle-names+ :test #'string=)
+        (barf "Resource destination ~s collides with ~a, which the bundle ~
+               needs. Choose another name."
+              destination first-component)))
+    (when (string= destination (spec-executable-name spec))
+      (barf "Resource destination ~s collides with the executable." destination))
+    destination))
+
+(defun install-resources (spec)
+  "Copy :BUNDLE-RESOURCES into the bundle root. Each entry is a path, or a
+cons of a path and the relative destination it should take."
+  (let ((seen (make-hash-table :test #'equal)))
+    (dolist (entry (spec-resources spec))
+      (let* ((source (if (consp entry) (car entry) entry))
+             (destination (if (consp entry)
+                              (cdr entry)
+                              (file-namestring source))))
+        (check-resource-destination spec destination)
+        (when (gethash destination seen)
+          (barf "Two resources both want to be ~s." destination))
+        (setf (gethash destination seen) t)
+        (let ((target (bundle-file spec destination)))
+          (ensure-directories-exist target)
+          (if (uiop:directory-exists-p source)
+              (run (list "/bin/cp" "-R"
+                         (string-right-trim "/" (uiop:native-namestring source))
+                         (uiop:native-namestring target)))
+              (uiop:copy-file source target)))))
+    (spec-resources spec)))

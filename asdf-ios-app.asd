@@ -16,7 +16,8 @@
                              (:file "compile")
                              (:file "link")
                              (:file "sign")
-                             (:file "deploy"))))
+                             (:file "deploy")
+                             (:file "op"))))
   :in-order-to ((test-op (test-op "asdf-ios-app/tests"))))
 
 (defsystem "asdf-ios-app/tests"

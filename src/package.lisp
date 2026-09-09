@@ -4,6 +4,10 @@
   (:use #:cl)
   (:nicknames #:ios-app)
   (:export
+   ;; build driver
+   #:make-app
+   #:run-in-simulator
+   #:install-on-device
    ;; toolchain
    #:bootstrap-ecl
    #:toolchain
