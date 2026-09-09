@@ -115,7 +115,12 @@ static cl_object OnMainCall(cl_object thunk)
   ecl_set_option(ECL_OPT_TRAP_INTERRUPT_SIGNAL, 0);
   ecl_set_option(ECL_OPT_SIGNAL_HANDLING_THREAD, 0);
 
-  char *argv[] = { (char *)IOS_APP_NAME, NULL };
+  /* static: cl_boot keeps this pointer rather than copying, and SI:ARGV reads
+     through it whenever anything asks for EXT:COMMAND-ARGS -- which
+     SLYNK:CONNECTION-INFO does, on the first message of every REPL session. On
+     the stack it is reclaimed the moment +boot returns, and the crash is a
+     SIGSEGV in strlen a long way from here. */
+  static char *argv[] = { (char *)IOS_APP_NAME, NULL };
   cl_boot(1, argv);
 
   /* There is no C compiler on the phone, so COMPILE has to go through the

@@ -283,8 +283,16 @@ CL-USER> (with-main-thread (say "Hello from SLY"))   ; a label appears on screen
 ```
 
 Redefining a function that was cross-compiled works too: the new definition is
-bytecode and replaces the `fdefinition`. See *Ahead of time does not mean
-frozen*.
+bytecode and replaces the `fdefinition`. `examples/attractor/` is built around
+that -- redefine `step-point` at a SLY prompt and the phone draws different
+mathematics on the next frame, with nothing rebuilt.
+
+**One trap, and it is the same one as the bridge's.** ECL compiles a call to a
+function defined in the same file as a direct C call, so redefining the callee
+changes nothing for its neighbours -- the picture keeps coming out of the
+version compiled on the Mac. Anything you intend to redefine at runtime, and
+that its own file calls, wants a `(declaim (notinline ...))`. The attractor
+carries one on `step-point` for exactly this reason.
 
 ## Deploying
 

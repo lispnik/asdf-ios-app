@@ -605,10 +605,15 @@ without a rebuild."
       (barf "System ~a needs an :ENTRY-POINT. It is called once, on the main ~
              thread, and must RETURN -- the run loop starts after it."
             (asdf:component-name system)))
-    (format nil "(ios-app-runtime::%boot :entry-point ~s~@[ :manifest ~s~]~@[ :remote-repl '~s~])"
-            entry
-            (and (app-interpreted system) "lisp/boot-order.sexp")
-            (remote-repl-options system))))
+    ;; *PRINT-PRETTY* off: the form is interpolated into the generated header
+    ;; as a single C string literal, and the pretty printer will happily break
+    ;; a plist across two lines, which does not compile.
+    (let ((*print-pretty* nil)
+          (*print-case* :downcase))
+      (format nil "(ios-app-runtime::%boot :entry-point ~s~@[ :manifest ~s~]~@[ :remote-repl '~s~])"
+              entry
+              (and (app-interpreted system) "lisp/boot-order.sexp")
+              (remote-repl-options system)))))
 
 (defun assemble-bundle (system platform products cache)
   (let* ((spec (system-app-spec system platform))

@@ -7,7 +7,8 @@
 
 (defpackage #:attractor
   (:use #:cl)
-  (:export #:start #:draw #:step-point #:*a* #:*b* #:*c* #:*d* #:*points*))
+  (:export #:start #:draw #:step-point #:redraw #:parameters
+           #:*a* #:*b* #:*c* #:*d* #:*points*))
 
 (in-package #:attractor)
 
@@ -32,13 +33,21 @@ allocation is the expensive part, not the arithmetic.")
 
 (defvar *view* nil)
 
-(declaim (inline step-point))
+(declaim (notinline step-point))
 (defun step-point (x y a b c d)
   "One iteration of the de Jong map.
 
 Redefine this over a REPL and the next redraw shows different mathematics.
 That is the whole demonstration: the function is native code compiled on a Mac,
-and replacing it on the phone costs nothing but a DEFUN."
+and replacing it on the phone costs nothing but a DEFUN.
+
+NOTINLINE, and not by accident. ECL compiles a call to a function defined in
+the same file as a direct C call to it -- INLINE would only make that worse --
+so FILL-BUFFER would keep running the version that was compiled on the Mac and
+a redefinition would appear to do nothing at all. NOTINLINE sends the call
+through the FDEFINITION, which is what a new DEFUN replaces. It costs a funcall
+per iteration; the demo is still interactive, and a demo that quietly cannot do
+the thing it claims is worth less than the cycles."
   (declare (optimize (speed 3) (safety 0) (debug 0))
            (double-float x y a b c d))
   (values (- (sin (* a y)) (cos (* b x)))
@@ -49,8 +58,16 @@ and replacing it on the phone costs nothing but a DEFUN."
   (declare (optimize (speed 3) (safety 0) (debug 0))
            (double-float width height))
   (let* ((n *points*)
-         (buffer (or *buffer* (setf *buffer* (make-array (* 2 n)
-                                                         :element-type 'double-float))))
+         ;; Re-allocated when *POINTS* grows, and not merely when it is NIL:
+         ;; FILL-BUFFER runs at (safety 0), so a stale short buffer is not an
+         ;; error, it is a heap overwrite -- and raising *POINTS* from a REPL is
+         ;; the first thing anyone tries.
+         (buffer (if (and *buffer* (>= (length (the (simple-array double-float (*))
+                                                    *buffer*))
+                                       (* 2 n)))
+                     *buffer*
+                     (setf *buffer* (make-array (* 2 n)
+                                                :element-type 'double-float))))
          (a *a*) (b *b*) (c *c*) (d *d*)
          ;; The map's range is [-2,2] in both axes.
          (sx (/ width 4.2d0))
@@ -84,6 +101,52 @@ it, and cl_funcall offers no protection, so the handler is here."
       (finish-output)
       0)))
 
+(defvar *pan* nil)
+(defvar *pinch* nil)
+
+(defun redraw ()
+  "Ask for a new frame. Safe to call from a REPL through ON-MAIN."
+  (when *view*
+    (attractor-glue:set-needs-display *view*)))
+
+(defun parameters ()
+  (list :a *a* :b *b* :c *c* :d *d*))
+
+;;; The two handlers below are reached from LispTarget, which evaluates a form
+;;; through si_safe_eval on the main thread. They read the recognizer's state
+;;; from the variable the recognizer was stashed in rather than from the sender:
+;;; UIKit's sender is an Objective-C argument, and not passing it is what keeps
+;;; LispTarget's contract to a single string.
+
+(defun on-pan ()
+  "Drag to move A and B. Reported as a delta: the translation is zeroed here."
+  (when *pan*
+    (let ((delta (attractor-glue:pan-translation *pan* *view*)))
+      (attractor-glue:reset-pan-translation *pan* *view*)
+      ;; Small enough that a full swipe is a tour of the parameter space rather
+      ;; than a jump across it.
+      (incf *a* (* (car delta) 0.004d0))
+      (incf *b* (* (cdr delta) 0.004d0))
+      (redraw))))
+
+(defun on-pinch ()
+  "Pinch to move C and D, in opposite directions -- it makes the figure open
+out rather than merely swell."
+  (when *pinch*
+    (let ((delta (- (attractor-glue:pinch-scale *pinch*) 1.0d0)))
+      (attractor-glue:reset-pinch-scale *pinch*)
+      (incf *c* (* delta 1.5d0))
+      (decf *d* (* delta 1.5d0))
+      (redraw))))
+
+(defun install-gestures ()
+  (setf *pan* (attractor-glue:add-recognizer
+               *view* "UIPanGestureRecognizer" "(attractor::on-pan)"))
+  (setf *pinch* (attractor-glue:add-recognizer
+                 *view* "UIPinchGestureRecognizer" "(attractor::on-pinch)"))
+  (attractor-glue:attach-recognizer *view* *pan*)
+  (attractor-glue:attach-recognizer *view* *pinch*))
+
 (defun start ()
   "Entry point. Runs on the main thread and must return: the run loop follows."
   (format t "~&ATTRACTOR: ~a ~a~%"
@@ -93,7 +156,10 @@ it, and cl_funcall offers no protection, so the handler is here."
   (attractor-glue:install-view-class "v@:{CGRect={CGPoint=dd}{CGSize=dd}}")
   (setf *view* (attractor-glue:make-view))
   (attractor-glue:set-root-view *view*)
+  (install-gestures)
   (let ((bounds (attractor-glue:view-bounds *view*)))
     (format t "ATTRACTOR: view is ~ax~a, ~d points~%"
             (round (car bounds)) (round (cdr bounds)) *points*))
+  (format t "ATTRACTOR: drag for A and B, pinch for C and D.~%")
+  (format t "ATTRACTOR: sly-connect to localhost 4005 and redefine STEP-POINT.~%")
   (finish-output))

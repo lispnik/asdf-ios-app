@@ -123,3 +123,82 @@ mathematics lives and where it stays editable."
       @(return) = 1;
     }
   }" :one-liner nil))
+
+;;; ------------------------------------------------------------------
+;;; gestures
+;;;
+;;; UIGestureRecognizer uses target/action, so LispTarget carries it: the
+;;; recognizer messages -fire:, which evaluates a Lisp form. The recognizer
+;;; itself is stashed on the Lisp side when it is made, so the handler reads
+;;; its state from there and never needs the sender -- which is what keeps
+;;; LispTarget a one-line contract.
+
+(defun add-recognizer (view class-name form)
+  "Attach a CLASS-NAME recognizer to VIEW whose action evaluates FORM.
+
+Returns the recognizer, so Lisp can ask it for its translation or scale later.
+LispTarget parks its instances in a class-level set: UIKit holds a target
+weakly, and a Lisp variable holding a raw address is not something ARC can see."
+  (ffi:c-inline (class-name form) (:cstring :cstring) :pointer-void "{
+    id string = ((id(*)(Class,SEL,const char *))objc_msgSend)(
+                  objc_getClass(\"NSString\"),
+                  sel_registerName(\"stringWithUTF8String:\"), #1);
+    id target = ((id(*)(Class,SEL,id))objc_msgSend)(
+                  objc_getClass(\"LispTarget\"),
+                  sel_registerName(\"targetWithForm:\"), string);
+    id r = ((id(*)(Class,SEL))objc_msgSend)(objc_getClass(#0),
+                                            sel_registerName(\"alloc\"));
+    r = ((id(*)(id,SEL,id,SEL))objc_msgSend)(r,
+          sel_registerName(\"initWithTarget:action:\"), target,
+          sel_registerName(\"fire:\"));
+    @(return) = r;
+  }" :one-liner nil))
+
+(defun attach-recognizer (view recognizer)
+  (ffi:c-inline (view recognizer) (:pointer-void :pointer-void) :int "{
+    ((void(*)(id,SEL,id))objc_msgSend)(#0,
+      sel_registerName(\"addGestureRecognizer:\"), #1);
+    ((void(*)(id,SEL,BOOL))objc_msgSend)(#0,
+      sel_registerName(\"setUserInteractionEnabled:\"), 1);
+    @(return) = 1;
+  }" :one-liner nil))
+
+(defun pan-translation (recognizer view)
+  "The pan's translation since it was last reset, as (dx . dy).
+
+-translationInView: returns a CGPoint by value -- two doubles in two floating
+point registers, which is a different ABI path again from CGRect's, and another
+thing no Lisp-side FFI on ECL can name."
+  (ffi:c-inline (recognizer view) (:pointer-void :pointer-void) :object "{
+    CGPoint p = ((CGPoint(*)(id,SEL,id))objc_msgSend)(#0,
+                  sel_registerName(\"translationInView:\"), #1);
+    @(return) = ecl_cons(ecl_make_double_float(p.x),
+                         ecl_make_double_float(p.y));
+  }" :one-liner nil))
+
+(defun reset-pan-translation (recognizer view)
+  "Zero the translation, so each callback reports a delta rather than a total."
+  (ffi:c-inline (recognizer view) (:pointer-void :pointer-void) :int "{
+    CGPoint zero = CGPointMake(0.0, 0.0);
+    ((void(*)(id,SEL,CGPoint,id))objc_msgSend)(#0,
+      sel_registerName(\"setTranslation:inView:\"), zero, #1);
+    @(return) = 1;
+  }" :one-liner nil))
+
+(defun pinch-scale (recognizer)
+  (ffi:c-inline (recognizer) (:pointer-void) :double "{
+    @(return) = ((CGFloat(*)(id,SEL))objc_msgSend)(#0, sel_registerName(\"scale\"));
+  }" :one-liner nil))
+
+(defun reset-pinch-scale (recognizer)
+  (ffi:c-inline (recognizer) (:pointer-void) :int "{
+    ((void(*)(id,SEL,CGFloat))objc_msgSend)(#0, sel_registerName(\"setScale:\"), 1.0);
+    @(return) = 1;
+  }" :one-liner nil))
+
+(defun set-needs-display (view)
+  "Ask UIKit to call drawRect: again on the next frame."
+  (ffi:c-inline (view) (:pointer-void) :int "{
+    ((void(*)(id,SEL))objc_msgSend)(#0, sel_registerName(\"setNeedsDisplay\"));
+    @(return) = 1;
+  }" :one-liner nil))

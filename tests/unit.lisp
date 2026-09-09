@@ -487,3 +487,14 @@ for -- which is exactly the sort of test that passes while proving nothing."
     (is (member :serve-event
                 (app::host-only-module-features
                  (asdf:system-relative-pathname "asdf-ios-app" "tests/fixture/no-modules/"))))))
+
+(deftest the-boot-form-is-one-line
+  ;; The pretty printer will break a :REMOTE-REPL plist across two lines, and
+  ;; the result is a C string literal that does not compile.
+  (let* ((system (make-instance 'asdf::ios-app-system
+                                :name "boot-form-test"
+                                :remote-repl '(:port 4005 :interface "127.0.0.1")))
+         (form (progn (setf (asdf::component-entry-point system) "app:start")
+                      (app::boot-form-for system nil))))
+    (is (null (find #\Newline form)))
+    (is (search ":remote-repl" form))))

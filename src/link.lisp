@@ -30,6 +30,12 @@ so it can only be included where <ecl/ecl.h> already has been -- which is
 ECLBoot.m and nowhere else. That is the same translation-unit split the shim
 itself observes: ECL's headers define bare `t' and other very short names, and
 nothing that touches UIKit may see them."
+  (when (find #\Newline boot-form)
+    ;; A C string literal cannot span lines, and the pretty printer will break
+    ;; a long form without being asked. Caught here because the compiler error
+    ;; it causes points at the generated header rather than at the cause.
+    (barf "The boot form contains a newline, which cannot be a C string:~%~a"
+          boot-form))
   (let ((build (build-header-path cache))
         (modules-header (modules-header-path cache)))
     (write-file-if-changed

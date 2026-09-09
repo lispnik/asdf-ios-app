@@ -8,6 +8,11 @@
   :description "Two million points of arithmetic, and a view whose drawRect: is Lisp."
   :version "1.0.0"
   :serial t
+  ;; slynk is not on Quicklisp under that name: point your source registry at
+  ;; sly's slynk/ directory. Drop this and :REMOTE-REPL below if you would
+  ;; rather build the demo without one -- everything but the live redefinition
+  ;; works the same.
+  :depends-on ("slynk")
   :components ((:file "glue-package")
                (:file "attractor"))
 
@@ -21,4 +26,9 @@
   ;; a drawRect: IMP receives a CGRect BY VALUE, and no Lisp-side FFI on ECL
   ;; can name an aggregate.
   :bundle-trampolines ("glue.lisp")
-  :bundle-frameworks ("UIKit" "Foundation" "CoreGraphics"))
+  :bundle-frameworks ("UIKit" "Foundation" "CoreGraphics")
+
+  ;; The last part of the demonstration: connect and redefine STEP-POINT while
+  ;; the phone is drawing. Wrap anything that touches the view in
+  ;; IOS-APP-RUNTIME:WITH-MAIN-THREAD -- slynk evaluates on a worker.
+  :remote-repl t)

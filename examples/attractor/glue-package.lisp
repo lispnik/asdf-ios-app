@@ -13,4 +13,7 @@
 (defpackage #:attractor-glue
   (:use #:cl)
   (:export #:install-view-class #:make-view #:set-root-view #:draw-points
-           #:view-bounds))
+           #:view-bounds
+           #:add-recognizer #:attach-recognizer #:set-needs-display
+           #:pan-translation #:reset-pan-translation
+           #:pinch-scale #:reset-pinch-scale))
