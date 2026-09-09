@@ -9,8 +9,14 @@
   :serial t
   :components ((:module "src"
                 :components ((:file "package")
+                             (:file "plist")
                              (:file "toolchain")
-                             (:file "bootstrap"))))
+                             (:file "bootstrap")
+                             (:file "bundle")
+                             (:file "compile")
+                             (:file "link")
+                             (:file "sign")
+                             (:file "deploy"))))
   :in-order-to ((test-op (test-op "asdf-ios-app/tests"))))
 
 (defsystem "asdf-ios-app/tests"
