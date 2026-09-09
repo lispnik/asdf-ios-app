@@ -343,3 +343,32 @@ for -- which is exactly the sort of test that passes while proving nothing."
     (app::profile-entitlements-form
      (test-spec :platform (app::find-platform :device)
                 :provisioning-profile nil))))
+
+;;; ------------------------------------------------------------------
+;;; dependency forms
+;;;
+;;; ASDF's :DEPENDS-ON allows more shapes than a string, and the one that
+;;; matters names its system in THIRD position. CFFI depends on UIOP exactly
+;;; that way; reading the second element yields :DARWIN, which finds no system
+;;; and silently drops the dependency.
+
+(deftest dependency-forms-are-all-understood
+  (is= '("alexandria") (app::dependency-names "alexandria"))
+  (is= '("alexandria") (app::dependency-names :alexandria))
+  (is= '("uiop") (app::dependency-names '(:feature :darwin "uiop")))
+  (is= '("babel") (app::dependency-names '(:version "babel" "1.0")))
+  (is= '("sb-posix") (app::dependency-names '(:require "sb-posix")))
+  (is= '() (app::dependency-names nil)))
+
+;;; ------------------------------------------------------------------
+;;; module init order
+;;;
+;;; ECL's own modules must initialise BEFORE the application's library: its
+;;; objects reference packages those modules define. Getting it backwards makes
+;;; the app die at boot reporting packages "referenced in compiled file NIL",
+;;; which names the packages and not the ordering.
+
+(deftest ecl-modules-are-listed-before-the-application-library
+  (let* ((spec (test-spec :ecl-modules '("sockets")))
+         (modules (app::ecl-module-inits spec)))
+    (is= '(("SOCKETS" . "init_lib_SOCKETS")) modules)))

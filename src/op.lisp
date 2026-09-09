@@ -126,7 +126,7 @@ which."
        :document-types (app-doc-types system)
        :extra-plist (app-extra-plist system)
        :resources (mapcar #'resource (app-resources system))
-       :ecl-modules (app-ecl-modules system)
+       :ecl-modules (needed-ecl-modules system)
        :frameworks (or (app-frameworks system)
                        '("UIKit" "Foundation" "CoreGraphics"))
        :static-libraries (mapcar (lambda (p) (merge-pathnames p source))
@@ -175,7 +175,38 @@ which."
 
 UIOP and ASDF because the prefix already has libasdf.a, built for the target,
 and recompiling them for arm64 is slower and no better. Ourselves because we
-are the build tool, not part of the app.")
+are the build tool, not part of the app.
+
+Skipping them is only half the job: whatever needed them still needs them at
+run time. See NEEDED-ECL-MODULES.")
+
+(defun closure-needs-asdf-p (system)
+  "Whether anything in the closure depends on UIOP or ASDF.
+
+Asked of the SYSTEM graph rather than the component list, because UIOP and
+ASDF contribute no components here -- they are excluded from cross-compilation,
+so nothing of theirs turns up in SOURCE-FILES-IN-ORDER.
+
+CFFI does, which makes this the common case rather than an exotic one. Left
+unlinked, the app dies at boot with
+
+  The packages ((UIOP/OS . ...) (UIOP/PATHNAME . ...)) were referenced in
+  compiled file NIL
+
+which names the packages but not the cause."
+  (some (lambda (dependency)
+          (member (string-downcase (asdf:component-name dependency))
+                  '("asdf" "uiop") :test #'string=))
+        (dependency-closure (asdf:component-name system))))
+
+(defun needed-ecl-modules (system)
+  "The ECL modules to link: what the system asked for, plus what its closure
+implies. ASDF is the only implied one so far."
+  (let ((asked (app-ecl-modules system)))
+    (if (and (closure-needs-asdf-p system)
+             (not (member "asdf" asked :test #'string-equal)))
+        (append asked (list "asdf"))
+        asked)))
 
 (defun source-files-in-order (system)
   "The CL source files LOAD-OP would touch, in ASDF's own dependency order.
@@ -271,6 +302,24 @@ an iOS bundle, in the host image."
 packages exist there, so they live in CL-USER."
   (intern name (find-package :cl-user)))
 
+(defun dependency-names (dependency)
+  "The system names in one :DEPENDS-ON entry.
+
+ASDF allows more shapes than a string. (:VERSION \"x\" \"1.0\") and
+(:REQUIRE \"x\") name a system in second position, but (:FEATURE :DARWIN \"x\")
+names it in THIRD -- and taking the second there yields :DARWIN, which finds no
+system and silently drops the real dependency. CFFI depends on UIOP exactly
+that way, which is how this was found."
+  (cond ((null dependency) '())        ; NIL is a symbol; test it first
+        ((stringp dependency) (list dependency))
+        ((symbolp dependency) (list (string-downcase (symbol-name dependency))))
+        ((consp dependency)
+         (case (first dependency)
+           (:feature (dependency-names (third dependency)))
+           ((:version :require) (dependency-names (second dependency)))
+           (t (dependency-names (second dependency)))))
+        (t '())))
+
 (defun dependency-closure (system-name)
   (let ((systems '()))
     (labels ((walk (name)
@@ -278,7 +327,7 @@ packages exist there, so they live in CL-USER."
                  (when (and system (not (member system systems)))
                    (push system systems)
                    (dolist (dep (asdf:system-depends-on system))
-                     (walk (if (consp dep) (second dep) dep)))))))
+                     (mapc #'walk (dependency-names dep)))))))
       (walk system-name))
     systems))
 
@@ -518,10 +567,17 @@ without a rebuild."
                                :name (spec-name spec)
                                :delegate (app-delegate-class system)
                                :boot-form (boot-form-for system spec)
-                               :modules (cons (cons (c-identifier
-                                                     (asdf:component-name system))
-                                                    init)
-                                              (ecl-module-inits spec)))
+                               ;; ECL's own modules FIRST, the application's
+                               ;; library last. Its objects reference packages
+                               ;; those modules define -- CFFI wants UIOP -- and
+                               ;; a module initialised afterwards is too late:
+                               ;; the app dies at boot reporting packages
+                               ;; "referenced in compiled file NIL", which names
+                               ;; the packages and not the ordering.
+                               :modules (append (ecl-module-inits spec)
+                                                (list (cons (c-identifier
+                                                             (asdf:component-name system))
+                                                            init))))
            (let ((objects (compile-objc-sources
                            platform objc-cache
                            :user-sources (mapcar
