@@ -1,0 +1,271 @@
+# asdf-ios-app
+
+An ASDF extension that builds an iOS `.app` bundle from an ECL image. No Xcode
+project, no `xcodebuild`: the operation drives `clang`, assembles the bundle and
+signs it.
+
+```lisp
+(defsystem "attractor"
+  :defsystem-depends-on ("asdf-ios-app")
+  :class :ios-app-system
+  :build-operation "ios-app-op"
+  :entry-point "attractor:start"
+  :version "1.0.0"
+  :bundle-identifier "com.example.attractor"
+  :bundle-name "Attractor"
+  :bundle-platforms (:simulator :device)
+  :depends-on ("alexandria")
+  :components ((:file "attractor")))
+```
+
+```
+$ ecl --eval '(asdf:make "attractor")' --eval '(quit)'
+; cross-compiling attractor for iphonesimulator
+; built /path/to/build/iphonesimulator/Attractor.app/
+```
+
+Your Lisp is cross-compiled to native arm64 and linked in. It is *not* frozen by
+that: `defun`, `defclass` and `defmethod` all work at run time, because the boot
+installs the bytecodes compiler.
+
+`examples/attractor/` is a `UIView` whose `drawRect:` is a Lisp function,
+drawing 300,000 points of a de Jong attractor. `examples/hello/` is the least
+you can write.
+
+## Getting a toolchain
+
+An iOS build needs an ECL cross-built for the target, and a *host* ECL from the
+same source tree. One command produces all of it:
+
+```lisp
+(asdf-ios-app:bootstrap-ecl)                        ; clone, patch, build
+(asdf-ios-app:bootstrap-ecl :source #p"~/src/ecl/") ; use a tree you have
+```
+
+About ten minutes from nothing. It records what it built in
+`~/.cache/asdf-ios-app/toolchain.sexp`, so nothing needs configuring afterwards,
+and re-running rebuilds nothing. `tools/build-ecl-ios.sh` is the same recipe as a
+shell script, for when you would rather not run a Lisp to get a Lisp.
+
+**The host ECL is not a convenience.** The cross build reuses its `dpp` and
+`ecl_min`, and `dpp` resolves each `@[pkg::sym]` in ECL's C sources to a numeric
+*index* into `symbols_list.h` — so a host ECL from another revision does not
+fail, it silently resolves every symbol to the wrong index. `bootstrap-ecl`
+builds a matched set and `check-ecl-prefix` refuses a mismatch.
+
+### Two ECL patches
+
+Neither is upstream, and `bootstrap-ecl` applies them.
+
+1. `configure.ac` ties `ENABLE_DLOPEN` to `--enable-shared`. An iOS app must
+   link statically and can still `dlsym`, so the cross build defines it anyway.
+2. `ecl_library_symbol` calls `dlsym(0, symbol)` for the `:default` module. On
+   Darwin a null handle is not the global scope — `RTLD_DEFAULT` is
+   `(void *)-2` — so it always returned NULL.
+
+Without both, `si:find-foreign-symbol` fails and CFFI, whose ECL backend
+resolves foreign functions by name, cannot work at all. The first is detectable
+from a built prefix and is checked; the second is a run-time behaviour and is
+not.
+
+## Three decisions that shape the design
+
+**There is no image dump.** ECL has no `save-lisp-and-die`, and iOS would not run
+the result. The system is cross-compiled to a static library and linked with
+`libecl.a`, so the linker *is* the install step — there is no core, and no
+symlink reconciling a runtime with it.
+
+**A callback must be compiled, not allocated.** `si::make-dynamic-callback` — the
+libffi-closure path behind `ffi:defcallback` — *kills the process* on iOS,
+silently and uncatchably, because `ffi_closure_alloc` needs
+writable-then-executable memory. Compiled ahead of time with `ffi::*use-dffi*`
+bound to `NIL`, `defcallback` emits an ordinary C function instead. That is why
+the whole design is ahead-of-time.
+
+**A simulator build is signed with no entitlements at all.** iOS validates a
+binary's entitlements against its provisioning profile, and a simulator app has
+none — so an ad-hoc signature carrying `get-task-allow` is refused at launch:
+
+```
+The request to open "org.example.app" failed.
+The request was denied by service delegate (SBMainWorkspace).
+```
+
+which says nothing about entitlements and sends you to `Info.plist`. An
+Xcode-built simulator app carries none either. Device builds get theirs *from*
+the profile, which is the only authority on what they may be.
+
+## Layout produced
+
+An iOS bundle is flat. There is no `Contents/`.
+
+```
+build/iphonesimulator/Attractor.app/
+  attractor                  the linked executable
+  Info.plist   PkgInfo   _CodeSignature/
+  embedded.mobileprovision   device builds only
+  lisp/                      only with :bundle-interpreted
+  <resources at the top level>
+```
+
+Which means a resource called `Info.plist` does not land somewhere harmless — it
+lands on the `Info.plist`. Reserved names are refused.
+
+## Options
+
+| Option | Default | |
+| --- | --- | --- |
+| `:bundle-identifier` | — | **required** |
+| `:bundle-name` | capitalised system name | `CFBundleName`, and the `.app` name |
+| `:bundle-executable` | downcased system name | |
+| `:bundle-display-name` | bundle name | |
+| `:bundle-short-version` | `:version` | |
+| `:bundle-platforms` | `(:simulator)` | any of `:simulator` `:device` |
+| `:bundle-minimum-os-version` | `"15.0"` | `MinimumOSVersion`, *not* `LSMinimumSystemVersion` |
+| `:bundle-device-family` | `(:iphone :ipad)` | |
+| `:bundle-orientations` | `(:portrait)` | |
+| `:bundle-ipad-orientations` | — | written only if given |
+| `:bundle-launch-screen` | `t` | an empty `UILaunchScreen`; without it iOS letterboxes the app |
+| `:bundle-required-capabilities` | `("arm64")` | |
+| `:bundle-status-bar-hidden` | `nil` | |
+| `:bundle-url-schemes`, `:bundle-document-types`, `:bundle-category`, `:bundle-copyright` | — | |
+| `:bundle-info-plist` | — | alist merged over the generated plist |
+| `:bundle-resources` | — | paths, or `(path . "destination")` |
+| `:bundle-interpreted` | — | systems shipped as source; see below |
+| `:bundle-trampolines` | — | files compiled for the target only; see below |
+| `:bundle-ecl-modules` | — | e.g. `("sockets")`; `asdf` is added when needed |
+| `:bundle-frameworks` | `("UIKit" "Foundation" "CoreGraphics")` | |
+| `:bundle-static-libraries`, `:bundle-link-flags`, `:bundle-objc-flags` | — | |
+| `:bundle-objc-sources` | — | your own `.m`, compiled after ours |
+| `:bundle-objc-main` | — | replaces `ECLMain.m` |
+| `:bundle-app-delegate` | `"ECLAppDelegate"` | |
+| `:bundle-output-directory` | `<system>/build/` | |
+| `:code-signing-identity` | `:automatic` | ad hoc on simulator; required on device |
+| `:development-team`, `:provisioning-profile` | — | device |
+| `:entitlements` | `:ios-default` | none on simulator, from the profile on device |
+| `:get-task-allow` | `t` | lets a debugger attach; a distribution build must not |
+
+`:entry-point` is stock ASDF, and **means something different here**. It is not a
+toplevel that runs to completion: it is called once, on the main thread, from
+`-application:didFinishLaunchingWithOptions:`, and it must *return* so the run
+loop can start.
+
+## Ahead of time does not mean frozen
+
+This is the point most likely to be got wrong. Compiling ahead of time is about
+how code *ships*, not whether the image is alive. On the device, with a fully
+compiled system:
+
+- `defun`, `defvar`, `defclass`, `defmethod` at run time all work — the boot
+  installs the bytecodes compiler, so `COMPILE` produces bytecode rather than
+  failing.
+- **Redefining a compiled function works.** The new definition is bytecode and
+  replaces the `fdefinition`; the native one is simply no longer called.
+- UIKit can be driven from Lisp: `objc_msgSend` through `si:call-cfun` needs no
+  compiler.
+
+What ahead-of-time buys, and nothing else can: native speed, and
+`ffi:defcallback`.
+
+`:bundle-interpreted` names systems to ship as *source*, loaded at boot from a
+manifest that carries dependency order into an image with no ASDF. The intended
+shape is a compiled core with an editable skin:
+
+```lisp
+:depends-on ("my-app-scripts")
+:bundle-interpreted ("my-app-scripts")
+```
+
+Edit a file in `MyApp.app/lisp/`, reinstall, and the behaviour changes with no
+compiler, no relink and no re-sign.
+
+One caution: compiled modules are initialised *before* any bundled source is
+loaded, so compiled code must not touch an interpreted package at **load** time.
+A reference deferred to run time is fine, and is what `examples/hello` does. The
+build says so when the shape arises; it cannot decide it for you.
+
+## Trampolines, and the ABI
+
+`ffi:c-inline` is normally useless on iOS because it needs a C compiler. Cross
+compiling means there *is* one, at build time — and then the C compiler
+implements the ABI, so the two things ECL's dynamic FFI cannot express at all
+come free:
+
+```lisp
+;; NSRange, returned BY VALUE
+(range-of-string haystack needle)  ; => (6 . 5)
+;; CGRect, a 32-byte homogeneous float aggregate in v0-v3
+(cgrect-inset-area 0d0 0d0 10d0 10d0)  ; => 48.0d0
+```
+
+Files named by `:bundle-trampolines` are compiled **for the target only, never
+on the host**. That exemption is the whole feature. Ordinary sources are
+compiled twice — natively in the child, so the cross compiler has their macros,
+and then for iOS — and `c-inline` survives neither half: it cannot be
+interpreted, and compiling it natively makes ECL build and *link* a host fasl,
+which fails the moment the C mentions CoreGraphics or `objc_msgSend`.
+
+Three things to know when writing one:
+
+- **The C must be plain C, not Objective-C.** A trampoline is a cast of
+  `objc_msgSend` to one concrete prototype, which is C anyway.
+- **No `@` may appear in a `c-inline` body**, because ECL reads it as the start
+  of its own `@(return)` syntax. That rules out `@"literals"` *and* Objective-C
+  type encodings; pass an encoding in as a `:cstring` argument instead.
+- **Declare the package in an ordinary component.** A trampoline file's
+  `defpackage` never runs on the host, and ordinary sources — which are read
+  there — cannot then read a symbol in it.
+
+## Deploying
+
+```lisp
+(asdf-ios-app::install-in-simulator bundle)
+(asdf-ios-app::launch-in-simulator bundle "com.example.attractor" :console t)
+(asdf-ios-app:install-on-device bundle)
+```
+
+A device needs Developer Mode enabled on the phone (Settings › Privacy &
+Security › Developer Mode, then restart), the phone unlocked while connected,
+and a signing identity with a matching provisioning profile.
+
+## Tests
+
+```
+$ ecl --eval '(asdf:test-system "asdf-ios-app")' --eval '(quit)'
+115 checks, 0 failures, 1 skipped
+```
+
+No test-library dependency. `tests/unit.lisp` needs neither Xcode nor a prefix
+nor a simulator; `tests/build.lisp` builds a real fixture and skips wholesale
+without a cross-compiled prefix. The one test that boots a simulator is gated:
+
+```
+$ ASDF_IOS_APP_SIMULATOR_TESTS=1 ecl --eval '(asdf:test-system "asdf-ios-app")'
+```
+
+because booting one is thirty seconds and varies by machine.
+
+## Known limits, and things to check
+
+- **Device builds are unverified end to end.** The argument construction, the
+  profile parsing and the refusals are tested; nothing beyond that has been run
+  on a phone.
+- **No remote REPL yet.** Slynk loads from the bundle and the server listens on
+  the simulator, but a connecting client is closed on without a reply. The same
+  interpreted load replies correctly on the host, so it is iOS-side. The ECL
+  backend also wants `(require :cmp)`, which is not yet wired.
+- **No icons.** `:bundle-icon` is not implemented; iOS wants an asset catalogue
+  compiled by `actool`, which is a different tool and a different output from
+  the macOS `.icns` story.
+- **No `.ipa` export**, so no App Store submission path.
+- **Simulator only, in practice.** `:bundle-platforms (:device)` builds, but see
+  the first point.
+- **A file is compiled twice** in the child — natively, then for iOS — so a
+  system with a `defconstant` of a non-`eql` value may complain. Alexandria and
+  CFFI both survive it. `:bundle-interpreted` is the escape.
+- **CI runs the unit suite only.** No runner has a cross-compiled ECL, and
+  building one is a twenty-minute job.
+
+## Licence
+
+MIT.
