@@ -49,6 +49,45 @@ static cl_object StringToLisp(NSString *s)
 
 @implementation ECLBoot
 
+/* ------------------------------------------------------------------
+ * The main-thread bridge.
+ *
+ * UIKit is main-thread only, and a remote REPL evaluates on a slynk worker.
+ * IOS-APP-RUNTIME::ON-MAIN routes through here so that `(make-instance
+ * 'my-view)' typed at a SLY prompt runs where UIKit requires rather than
+ * wherever the REPL happens to be.
+ *
+ * Installed over the Lisp fallback in runtime.lisp, which just funcalls --
+ * that fallback is what lets the same code run under the test suite on a Mac
+ * with no application around it. */
+
+static cl_object OnMainCall(cl_object thunk)
+{
+  /* cl_funcall rather than si_safe_eval on a constructed form: ECL's evaluator
+     will not accept a literal function object as an argument, so
+     (FUNCALL '#<bytecompiled-function>) fails with
+
+       FUNCTION: Not a valid argument
+
+     before the thunk is ever called -- and si_safe_eval swallows that into its
+     error value, so the bridge silently returns NIL. ON-MAIN wraps what it
+     passes here in a HANDLER-CASE, which is the better place for it anyway:
+     the condition is then re-signalled on the thread that asked, rather than
+     on the main thread where nobody is listening. */
+  if (NSThread.isMainThread) {
+    /* dispatch_sync to the main queue from the main thread deadlocks. */
+    return cl_funcall(1, thunk);
+  }
+
+  /* Stack storage, so the collector can see it: dispatch_sync runs the block
+     inline and never copies it to the heap. */
+  __block cl_object result = ECL_NIL;
+  dispatch_sync(dispatch_get_main_queue(), ^{
+    result = cl_funcall(1, thunk);
+  });
+  return result;
+}
+
 + (void)boot
 {
   static BOOL booted = NO;
@@ -100,6 +139,20 @@ static cl_object StringToLisp(NSString *s)
 #define INIT_MODULE(name, init) ecl_init_module(NULL, init);
   IOS_APP_MODULES(INIT_MODULE)
 #undef INIT_MODULE
+
+  /* Now that the runtime library's module has run, the package exists and
+     the hook can be given its real value.
+
+     A variable rather than a function definition because ECL compiles a call
+     to a function defined in the same file as a direct C call: redefining
+     %ON-MAIN-CALL would leave ON-MAIN calling the old one, silently, and the
+     symptom is a bridge that appears to work while running on the wrong
+     thread. */
+  ecl_setq(ecl_process_env(),
+           ecl_make_symbol("*ON-MAIN-HOOK*", "IOS-APP-RUNTIME"),
+           ecl_make_cfun((cl_objectfn_fixed)OnMainCall,
+                         ecl_make_symbol("%ON-MAIN-CALL", "IOS-APP-RUNTIME"),
+                         ECL_NIL, 1));
 
   /* Where the bundled resources are, for Lisp that wants to LOAD one. */
   ecl_setq(ecl_process_env(),

@@ -19,7 +19,11 @@
            #:bundle-resource
            #:root-view-controller-name
            #:set-root-view-controller
-           #:*entry-point*))
+           #:*entry-point*
+           #:on-main
+           #:with-main-thread
+           #:start-remote-repl
+           #:*remote-repl-port*))
 
 (in-package #:ios-app-runtime)
 
@@ -66,6 +70,88 @@ Objective-C: a condition unwinding through a UIKit frame corrupts it."
             ""))
     (error (e) (format nil "; ~a: ~a" (type-of e) e))))
 
+(defvar *on-main-hook* nil
+  "A function of one argument -- a thunk -- that runs it on the main thread.
+
+Set from ECLBoot.m at boot, to a C function that does the real GCD dispatch.
+A variable rather than a redefinable function on purpose: ECL compiles a call
+to a function defined in the same file as a direct C call, so replacing
+ON-MAIN's callee through its FDEFINITION does nothing at all -- the call never
+consults the symbol. That failure is silent and it looks exactly like a
+working bridge: the thunk still runs, just on the wrong thread.
+
+NIL means no bridge, which is the right answer on the host: the test suite has
+no main queue to dispatch to and no UIKit to protect.")
+
+(defun on-main (thunk)
+  "Run THUNK on the main thread, waiting for it, and return its value.
+
+UIKit is main-thread only and almost nothing in a Lisp image is on the main
+thread: a remote REPL evaluates on a slynk worker, and MP:PROCESS-RUN-FUNCTION
+gives you a fresh thread. Touching a view from either is not slow or flaky, it
+is undefined -- so every UI form typed at a remote REPL has to come back
+through here."
+  (cond
+    ((null *on-main-hook*) (funcall thunk))
+    (t
+     ;; The hook calls its argument from inside an Objective-C block, and a
+     ;; condition or a THROW unwinding through a GCD frame corrupts it. So
+     ;; nothing is allowed to leave the function handed over: the outcome comes
+     ;; back in a cons and is re-signalled here, on the thread that asked --
+     ;; which is also where a REPL wants to see it.
+     (let ((values nil)
+           (condition nil))
+       (funcall *on-main-hook*
+                (lambda ()
+                  (handler-case
+                      (setf values (multiple-value-list (funcall thunk)))
+                    (serious-condition (e) (setf condition e)))
+                  nil))
+       (if condition
+           (error condition)
+           (values-list values))))))
+
+(defmacro with-main-thread (&body body)
+  "Evaluate BODY on the main thread and return its value. See ON-MAIN."
+  `(on-main (lambda () ,@body)))
+
+;;; ------------------------------------------------------------------
+;;; remote REPL
+
+(defvar *remote-repl-port* nil
+  "The port the slynk server is listening on, once it is up.")
+
+(defun start-remote-repl (&key (port 4005) interface (style :spawn))
+  "Start a slynk server so a SLY client can attach to this image.
+
+Started before the entry point on purpose. An entry point that signals is
+exactly when you most want a REPL, and if the server came up afterwards a
+broken :ENTRY-POINT would leave you with no way in but a rebuild.
+
+The connection is plain TCP on the loopback interface. On the simulator that
+is the Mac's own loopback, so `sly-connect' to localhost just works; a device
+needs a forwarder -- `iproxy 4005 4005'. Do not widen INTERFACE to 0.0.0.0
+outside a network you control: this is an unauthenticated eval server."
+  (let ((create (find-symbol "CREATE-SERVER" "SLYNK")))
+    (cond
+      ((not (and create (fboundp create)))
+       (format t "~&; :REMOTE-REPL is on but SLYNK is not in the image.~%")
+       (finish-output)
+       nil)
+      (t
+       (handler-case
+           (progn
+             (funcall create :port port :dont-close t :style style
+                            :interface interface)
+             (setf *remote-repl-port* port)
+             (format t "~&; slynk listening on port ~d~%" port)
+             (finish-output)
+             port)
+         (error (e)
+           (format t "~&; slynk failed to start on port ~d: ~a~%" port e)
+           (finish-output)
+           nil))))))
+
 ;;; ------------------------------------------------------------------
 ;;; interpreted components
 
@@ -107,13 +193,15 @@ that into a condition costs a redefinition of an internal and is worth it."
                       Compile this system ahead of time instead of listing it ~
                       in :BUNDLE-INTERPRETED."))))))
 
-(defun %boot (&key entry-point manifest (guard-callbacks t))
+(defun %boot (&key entry-point manifest remote-repl (guard-callbacks t))
   "Called from ECLBoot once the image is up. Returns; the run loop follows."
   (setf *bundle-path* (symbol-value (find-symbol "*BUNDLE-PATH*" "CL-USER")))
   (when guard-callbacks
     (guard-dynamic-callbacks))
   (when manifest
     (load-bundled-sources manifest))
+  (when remote-repl
+    (apply #'start-remote-repl remote-repl))
   (when entry-point
     (let ((symbol (ignore-errors (read-from-string entry-point))))
       (setf *entry-point* symbol)

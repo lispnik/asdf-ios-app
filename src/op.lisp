@@ -43,6 +43,7 @@
    (objc-main     :initarg :bundle-objc-main :initform nil :reader app-objc-main)
    (delegate      :initarg :bundle-app-delegate :initform nil :reader app-delegate-class)
    (trampolines   :initarg :bundle-trampolines :initform nil :reader app-trampolines)
+   (remote-repl   :initarg :remote-repl :initform nil :reader app-remote-repl)
    (objc-flags    :initarg :bundle-objc-flags :initform nil :reader app-objc-flags)
    (link-flags    :initarg :bundle-link-flags :initform nil :reader app-link-flags)
    (output-dir    :initarg :bundle-output-directory :initform nil :reader app-output-directory)
@@ -200,14 +201,61 @@ which names the packages but not the cause."
                   '("asdf" "uiop") :test #'string=))
         (dependency-closure (asdf:component-name system))))
 
+(defparameter +remote-repl-modules+ '("sockets" "sb-bsd-sockets" "cmp")
+  "The ECL modules a slynk server needs linked into the app.
+
+sockets and sb-bsd-sockets because slynk's ECL backend does
+(require 'sockets) and talks to SB-BSD-SOCKETS directly; cmp because that
+backend references the C package -- C:COMPILER-FATAL-ERROR among others -- and
+because a REPL where COMPILE does not work is a poor sort of REPL.")
+
+(defun remote-repl-options (system)
+  "SYSTEM's :REMOTE-REPL as a plist for IOS-APP-RUNTIME:START-REMOTE-REPL, or NIL.
+
+Accepts T, a port number, or a plist -- (:port 4005 :interface \"127.0.0.1\"
+:style :spawn) -- because a port is what almost everyone means and spelling out
+a plist to say 4005 would be a tax."
+  (let ((value (app-remote-repl system)))
+    (etypecase value
+      (null nil)
+      ((eql t) (list :port 4005))
+      (integer (list :port value))
+      (cons
+       (let ((port (getf value :port 4005)))
+         (unless (integerp port)
+           (barf ":REMOTE-REPL was given ~s as a :PORT; it must be an integer."
+                 port))
+         (list :port port
+               :interface (getf value :interface)
+               :style (getf value :style :spawn)))))))
+
+(defun check-remote-repl (system)
+  "Refuse a :REMOTE-REPL build whose closure has no slynk in it.
+
+Caught here rather than at boot because the failure is otherwise an app that
+launches, says nothing, and does not listen -- and the fix is one line in the
+.asd. ASDF-IOS-APP deliberately does not depend on slynk itself: which REPL
+server you want, and where its sources live, is yours to say."
+  (when (and (remote-repl-options system)
+             (notany (lambda (dependency)
+                       (string-equal "slynk" (asdf:component-name dependency)))
+                     (dependency-closure (asdf:component-name system))))
+    (barf ":REMOTE-REPL needs slynk in the system's closure. Add \"slynk\" to ~
+           :DEPENDS-ON, and put sly's slynk/ directory on the source registry ~
+           -- it is not on Quicklisp under that name.")))
+
 (defun needed-ecl-modules (system)
   "The ECL modules to link: what the system asked for, plus what its closure
-implies. ASDF is the only implied one so far."
-  (let ((asked (app-ecl-modules system)))
-    (if (and (closure-needs-asdf-p system)
-             (not (member "asdf" asked :test #'string-equal)))
-        (append asked (list "asdf"))
-        asked)))
+implies. ASDF and the remote REPL are the implied ones so far."
+  (let ((asked (app-ecl-modules system))
+        (implied '()))
+    (when (closure-needs-asdf-p system)
+      (push "asdf" implied))
+    (when (remote-repl-options system)
+      (setf implied (append (reverse +remote-repl-modules+) implied)))
+    (dolist (module (reverse implied) asked)
+      (unless (member module asked :test #'string-equal)
+        (setf asked (append asked (list module)))))))
 
 (defun source-files-in-order (system)
   "The CL source files LOAD-OP would touch, in ASDF's own dependency order.
@@ -557,9 +605,10 @@ without a rebuild."
       (barf "System ~a needs an :ENTRY-POINT. It is called once, on the main ~
              thread, and must RETURN -- the run loop starts after it."
             (asdf:component-name system)))
-    (format nil "(ios-app-runtime::%boot :entry-point ~s~@[ :manifest ~s~])"
+    (format nil "(ios-app-runtime::%boot :entry-point ~s~@[ :manifest ~s~]~@[ :remote-repl '~s~])"
             entry
-            (and (app-interpreted system) "lisp/boot-order.sexp"))))
+            (and (app-interpreted system) "lisp/boot-order.sexp")
+            (remote-repl-options system))))
 
 (defun assemble-bundle (system platform products cache)
   (let* ((spec (system-app-spec system platform))
@@ -644,6 +693,7 @@ why these do not need looking up."
          (cache (uiop:subpathname (app-output-root s) "cache/")))
     (dolist (platform platforms)
       (check-ecl-prefix (platform-key platform)))
+    (check-remote-repl s)
     (warn-about-interpreted-dependencies s)
     ;; One child for every platform: loading the system natively is the
     ;; expensive half and there is no reason to do it twice.

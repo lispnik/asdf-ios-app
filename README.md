@@ -140,6 +140,7 @@ lands on the `Info.plist`. Reserved names are refused.
 | `:bundle-objc-main` | — | replaces `ECLMain.m` |
 | `:bundle-app-delegate` | `"ECLAppDelegate"` | |
 | `:bundle-output-directory` | `<system>/build/` | |
+| `:remote-repl` | `nil` | `t`, a port, or a plist; see below |
 | `:code-signing-identity` | `:automatic` | ad hoc on simulator; required on device |
 | `:development-team`, `:provisioning-profile` | — | device |
 | `:entitlements` | `:ios-default` | none on simulator, from the profile on device |
@@ -216,6 +217,75 @@ Three things to know when writing one:
   `defpackage` never runs on the host, and ordinary sources — which are read
   there — cannot then read a symbol in it.
 
+## A REPL on the phone
+
+```lisp
+:depends-on ("slynk")
+:remote-repl t                      ; or 9999, or (:port 4005 :interface nil)
+```
+
+That links `sockets`, `sb-bsd-sockets` and `cmp`, and starts a slynk server at
+boot -- **before** the entry point, because an entry point that signals is
+exactly when you most want a way in, and a REPL that came up afterwards would
+leave you rebuilding to find out why.
+
+Slynk is not a dependency of this extension: which REPL server you want is
+yours to say. It is also not on Quicklisp under that name, so put sly's
+`slynk/` directory on your source registry. A `:remote-repl` build whose
+closure has no slynk in it is refused at build time rather than at boot.
+
+Connecting: the simulator shares the Mac's loopback, so `M-x sly-connect` to
+`localhost 4005` just works. A device needs a forwarder --
+`brew install libimobiledevice`, then `iproxy 4005 4005`.
+
+### Everything that touches UIKit goes through `on-main`
+
+Slynk evaluates on its own worker thread and UIKit is main-thread only, so this
+is not a style preference -- a view built from the REPL thread is undefined
+behaviour that usually looks like it worked.
+
+```lisp
+(ios-app-runtime:with-main-thread
+  (make-a-view))
+```
+
+`with-main-thread` (and `on-main`, which takes a thunk) dispatches to the main
+queue, waits, returns every value, and re-signals a condition on the thread
+that asked -- so an error still lands in your debugger rather than on a thread
+nobody is watching. With no application around it, on the host, it just calls:
+that is what lets UI-building code be exercised by the test suite.
+
+Two things about the bridge are worth knowing, because both failures are
+silent:
+
+- It is installed into a **variable**, `*on-main-hook*`, not over a function
+  definition. ECL compiles a call to a function defined in the same file as a
+  direct C call, so replacing that function's `fdefinition` from Objective-C
+  changes nothing -- and the symptom is a bridge that appears to work while
+  running everything on the wrong thread.
+- The Objective-C side calls the thunk with `cl_funcall`, not by evaluating a
+  constructed form. ECL's evaluator will not accept a literal function object
+  as an argument: `(funcall '#<bytecompiled-function>)` fails with `FUNCTION:
+  Not a valid argument` before the thunk is reached.
+
+### What a session looks like
+
+Connected to a running app on the simulator, with nothing but `:remote-repl t`
+in the `.asd`:
+
+```lisp
+CL-USER> (defun fresh (x) (* x 111))     ; a definition that was never built in
+FRESH
+CL-USER> (fresh 3)
+333
+CL-USER> (with-main-thread (say "Hello from SLY"))   ; a label appears on screen
+:DONE
+```
+
+Redefining a function that was cross-compiled works too: the new definition is
+bytecode and replaces the `fdefinition`. See *Ahead of time does not mean
+frozen*.
+
 ## Deploying
 
 ```lisp
@@ -250,10 +320,10 @@ because booting one is thirty seconds and varies by machine.
 - **Device builds are unverified end to end.** The argument construction, the
   profile parsing and the refusals are tested; nothing beyond that has been run
   on a phone.
-- **No remote REPL yet.** Slynk loads from the bundle and the server listens on
-  the simulator, but a connecting client is closed on without a reply. The same
-  interpreted load replies correctly on the host, so it is iOS-side. The ECL
-  backend also wants `(require :cmp)`, which is not yet wired.
+- **The remote REPL is unauthenticated.** Anyone who can reach the port gets
+  `eval`. It binds loopback, which on a device means nothing can reach it
+  without `iproxy`; do not widen `:interface` outside a network you own, and do
+  not ship a build with `:remote-repl` on.
 - **No icons.** `:bundle-icon` is not implemented; iOS wants an asset catalogue
   compiled by `actool`, which is a different tool and a different output from
   the macOS `.icns` story.
@@ -263,6 +333,15 @@ because booting one is thirty seconds and varies by machine.
 - **A file is compiled twice** in the child — natively, then for iOS — so a
   system with a `defconstant` of a non-`eql` value may complain. Alexandria and
   CFFI both survive it. `:bundle-interpreted` is the escape.
+- **The iOS prefixes carry fewer ECL modules than the host.** `--disable-shared`
+  drops `serve-event`, among others. Cross-compilation compensates: `SYS:` is
+  repointed at the target's module directory, so a system that probes for a
+  module at compile time gets the target's answer, and any `*features*` entry
+  named after a module only the host has is dropped for the duration. Without
+  that, slynk's `(probe-file "sys:serve-event.fas")` succeeds on the Mac and the
+  app dies at boot with `Package SERVE-EVENT ... referenced in compiled file but
+  has not been created`. If you hit that message for some *other* package, this
+  is the mechanism to look at.
 - **CI runs the unit suite only.** No runner has a cross-compiled ECL, and
   building one is a twenty-minute job.
 

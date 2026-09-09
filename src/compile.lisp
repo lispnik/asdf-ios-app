@@ -21,6 +21,88 @@ out of that platform's own prefix."
                 (barf "~a's ecl-config reports no -isysroot."
                       (uiop:native-namestring prefix))))))
 
+(defun module-names-in (directory)
+  "The ECL module names a prefix's module directory offers, as a set of strings.
+
+A module shows up under several names -- sockets.asd, sockets.fasc,
+libsockets.a -- so the extension and any lib prefix are stripped and the result
+uniquified. Only the names matter here, never the files themselves: a target
+module directory holds arm64 objects this Lisp must not load."
+  (when directory
+    (let ((names '()))
+      (dolist (file (directory (merge-pathnames "*.*"
+                                                (uiop:ensure-directory-pathname directory)))
+               names)
+        (let ((name (pathname-name file))
+              (type (pathname-type file)))
+          (when (and name
+                     (member type '("fas" "fasc" "asd" "a") :test #'equal))
+            (when (and (equal type "a") (uiop:string-prefix-p "lib" name))
+              (setf name (subseq name 3)))
+            (pushnew name names :test #'string-equal)))))))
+
+(defun host-only-module-features (target-directory)
+  "Features named after a module the host has and TARGET-DIRECTORY does not.
+
+These are lies during cross compilation. A system that adapts to its host --
+slynk's ECL backend is the example -- probes for a module at load time and
+pushes a feature when it finds one:
+
+    (when (probe-file \"sys:serve-event.fas\")
+      (require :serve-event)
+      (pushnew :serve-event *features*))
+
+The child loads that system natively before cross-compiling it, so the probe
+answers for the Mac. The prefixes do not carry the same module set --
+--disable-shared drops serve-event -- so the #+serve-event code then compiled
+into the app references a package no linked module provides, and the app dies
+at boot. Repointing SYS: stops the probe succeeding a second time; it cannot
+retract what the native load already pushed. This can."
+  (let* ((directory (and target-directory
+                         (probe-file (uiop:ensure-directory-pathname target-directory))
+                         target-directory))
+         (host (module-names-in (ignore-errors (translate-logical-pathname #p"SYS:"))))
+         (target (module-names-in directory)))
+    ;; DIRECTORY rather than TARGET: an unreadable prefix must drop nothing,
+    ;; but a readable one with no modules in it legitimately drops everything.
+    (when (and host directory)
+      (remove-if-not (lambda (feature)
+                       (let ((name (symbol-name feature)))
+                         (and (member name host :test #'string-equal)
+                              (not (member name target :test #'string-equal)))))
+                     (remove-if-not #'symbolp *features*)))))
+
+(defmacro with-target-sys-translations ((platform) &body body)
+  "Run BODY with SYS: and *FEATURES* answering for PLATFORM rather than the Mac.
+
+SYS: is repointed at the target's module directory. SETF of
+LOGICAL-PATHNAME-TRANSLATIONS is global state rather than a binding, so the old
+translations are saved and put back by UNWIND-PROTECT.
+
+*FEATURES* loses the features named after modules only the host has; see
+HOST-ONLY-MODULE-FEATURES for why that is not as arbitrary as it looks."
+  (let ((p (gensym "PLATFORM"))
+        (saved (gensym "SAVED"))
+        (dir (gensym "DIR"))
+        (dropped (gensym "DROPPED")))
+    `(let* ((,p ,platform)
+            (,dir (prefix-module-directory (platform-prefix ,p)))
+            (,dropped (host-only-module-features ,dir))
+            (*features* (set-difference *features* ,dropped))
+            (,saved (logical-pathname-translations "SYS")))
+       (when ,dropped
+         (note "cross-compiling without host-only feature~p: ~{~s~^ ~}"
+               (length ,dropped) ,dropped))
+       (unwind-protect
+            (progn
+              (when ,dir
+                (setf (logical-pathname-translations "SYS")
+                      (list (list "**;*.*"
+                                  (merge-pathnames "**/*.*"
+                                                   (uiop:ensure-directory-pathname ,dir))))))
+              ,@body)
+         (setf (logical-pathname-translations "SYS") ,saved)))))
+
 (defmacro with-ios-toolchain ((platform) &body body)
   "Point ECL's C backend at an iOS SDK for the duration.
 
@@ -33,7 +115,21 @@ closure instead of a C function -- and a libffi closure is the one thing iOS
 will not run.
 
 C::*USE-PRECOMPILED-HEADERS* off because that cache is keyed with EQ on the
-flag strings, which goes wrong the moment one image builds two platforms."
+flag strings, which goes wrong the moment one image builds two platforms.
+
+SYS: is repointed at the target's module directory, because a cross compiler
+that answers host questions compiles the wrong code. Systems probe SYS: at
+compile time to decide what to emit -- slynk's ECL backend asks
+(probe-file \"sys:serve-event.fas\") and, told yes by the host, compiles in
+references to a package the phone has no module for, so the app dies at boot
+with `Package SERVE-EVENT ... referenced in compiled file but has not been
+created'. The prefixes do not carry the same module set: --disable-shared
+drops serve-event entirely. Pointing SYS: at the target makes those probes
+answer for the machine the code is going to run on.
+
+Safe because REQUIRE consults *MODULES* first, so the child's already-loaded
+modules are not re-sought, and because the header path the compiler needs
+comes from C::*ECL-INCLUDE-DIRECTORY* above rather than from SYS:."
   (let ((p (gensym "PLATFORM")))
     `(let* ((,p ,platform)
             (c::*cc* "clang")
@@ -43,7 +139,7 @@ flag strings, which goes wrong the moment one image builds two platforms."
               (uiop:native-namestring (prefix-include (platform-prefix ,p))))
             (c::*use-precompiled-headers* nil)
             (ffi::*use-dffi* nil))
-       ,@body)))
+       (with-target-sys-translations (,p) ,@body))))
 
 (defun require-compiler ()
   (unless (find-package "C")

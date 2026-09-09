@@ -397,3 +397,93 @@ for -- which is exactly the sort of test that passes while proving nothing."
     (is= (namestring (merge-pathnames "glue.lisp" directory))
          (namestring
           (merge-pathnames "glue.lisp" (asdf:system-source-directory system))))))
+
+;;; ------------------------------------------------------------------
+;;; the remote REPL
+
+(defun repl-system (value)
+  "A throwaway system carrying VALUE as its :REMOTE-REPL."
+  (make-instance 'asdf::ios-app-system :name "repl-test" :remote-repl value))
+
+(deftest remote-repl-accepts-t-a-port-or-a-plist
+  (is= nil (app::remote-repl-options (repl-system nil)))
+  (is= '(:port 4005) (app::remote-repl-options (repl-system t)))
+  (is= '(:port 9999) (app::remote-repl-options (repl-system 9999)))
+  (is= '(:port 4005 :interface nil :style :spawn)
+       (app::remote-repl-options (repl-system '(:port 4005))))
+  (is= '(:port 1234 :interface "0.0.0.0" :style :fd-handler)
+       (app::remote-repl-options
+        (repl-system '(:port 1234 :interface "0.0.0.0" :style :fd-handler)))))
+
+(deftest a-non-integer-repl-port-is-refused
+  ;; Caught in the .asd rather than at boot, where the symptom would be an app
+  ;; that launches and quietly does not listen.
+  (signals app::app-build-error
+    (app::remote-repl-options (repl-system '(:port "4005")))))
+
+(deftest the-remote-repl-implies-the-modules-it-needs
+  ;; slynk's ECL backend requires sockets, talks to sb-bsd-sockets, and names
+  ;; the C package -- all three have to be linked or the app dies at boot.
+  (let ((modules (app::needed-ecl-modules (repl-system t))))
+    (dolist (module '("sockets" "sb-bsd-sockets" "cmp"))
+      (is (member module modules :test #'string-equal))))
+  (is= nil (app::needed-ecl-modules (repl-system nil))))
+
+(deftest an-implied-module-is-not-added-twice
+  (let ((modules (app::needed-ecl-modules
+                  (make-instance 'asdf::ios-app-system :name "repl-test"
+                                 :remote-repl t
+                                 :bundle-ecl-modules '("sockets")))))
+    (is= 1 (count "sockets" modules :test #'string-equal))))
+
+;;; ------------------------------------------------------------------
+;;; the main-thread bridge
+;;;
+;;; ON-MAIN has to work with no application around it, because that is how the
+;;; host tests -- and every system that builds UI -- can be exercised here.
+
+(deftest on-main-without-a-hook-just-calls
+  (let ((ios-app-runtime::*on-main-hook* nil))
+    (is= 42 (ios-app-runtime:on-main (lambda () 42)))
+    (is= '(1 2) (multiple-value-list (ios-app-runtime:with-main-thread (values 1 2))))))
+
+(deftest on-main-returns-values-through-the-hook
+  ;; The hook stands in for the Objective-C dispatcher, which can only call a
+  ;; function of no arguments and can only take back one value.
+  (let ((ios-app-runtime::*on-main-hook* (lambda (thunk) (funcall thunk))))
+    (is= 42 (ios-app-runtime:on-main (lambda () 42)))
+    (is= '(1 2 3)
+         (multiple-value-list (ios-app-runtime:on-main (lambda () (values 1 2 3)))))))
+
+(deftest on-main-re-signals-on-the-calling-thread
+  ;; Nothing may unwind through the hook: a condition crossing a GCD frame
+  ;; corrupts it. So the error is caught inside and signalled again out here.
+  (let* ((escaped nil)
+         (ios-app-runtime::*on-main-hook*
+           (lambda (thunk)
+             (handler-case (funcall thunk)
+               (error () (setf escaped t))))))
+    (signals error (ios-app-runtime:on-main (lambda () (error "boom"))))
+    (is (not escaped))))
+
+;;; ------------------------------------------------------------------
+;;; cross-compiling with the target's answers
+;;;
+;;; A cross compiler that answers host questions compiles the wrong code, and
+;;; the failure lands at boot rather than at build time.
+
+(deftest module-names-are-read-from-every-spelling
+  (let ((names (app::module-names-in
+                (asdf:system-relative-pathname "asdf-ios-app" "tests/fixture/modules/"))))
+    (if (null names)
+        (skip "no module fixture directory")
+        (progn (is (member "sockets" names :test #'string-equal))
+               (is (member "asdf" names :test #'string-equal))))))
+
+(deftest a-feature-naming-a-host-only-module-is-dropped
+  ;; The concrete case: slynk pushes :SERVE-EVENT after probing the host, and
+  ;; --disable-shared leaves no serve-event in either iOS prefix.
+  (let ((*features* (list* :serve-event :ecl *features*)))
+    (is (member :serve-event
+                (app::host-only-module-features
+                 (asdf:system-relative-pathname "asdf-ios-app" "tests/fixture/no-modules/"))))))
