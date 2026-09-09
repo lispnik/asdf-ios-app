@@ -32,19 +32,108 @@ Xcode-built simulator app carries no entitlements at all; this matches it."
       (symbol
        (assert (eq e :ios-default))
        (cond ((platform-simulator-p (spec-platform spec)) nil)
-             ((not (spec-get-task-allow-p spec)) nil)
              (t
               ;; Beside the bundle, not inside it: entitlements are an input to
               ;; codesign, and a copy left in the bundle would be signed as a
               ;; resource and shipped for no reason.
               (let ((path (sibling-file (spec-root spec) "entitlements.plist")))
-                (lint-plist (write-plist +ios-entitlements+ path))
+                (lint-plist (write-plist (profile-entitlements-form spec) path))
                 path)))))))
 
 (defun sibling-file (directory name)
   (uiop:subpathname (uiop:pathname-parent-directory-pathname
                      (uiop:ensure-directory-pathname directory))
                     name))
+
+;;; ------------------------------------------------------------------
+;;; provisioning profiles
+;;;
+;;; A .mobileprovision is a CMS-signed plist. security unwraps it and plutil
+;;; reads values out, which is a lot cheaper than carrying a plist PARSER to
+;;; match the writer -- and the only values wanted are a handful of strings.
+
+(defun decode-profile (profile)
+  "The profile's plist, as a string."
+  (unless (probe-file profile)
+    (barf "No provisioning profile at ~a." (uiop:native-namestring profile)))
+  (run (list "/usr/bin/security" "cms" "-D" "-i"
+             (uiop:native-namestring profile))))
+
+(defun profile-value (decoded key)
+  "One value out of a decoded profile, or NIL.
+
+KEY is a plutil key path, so \"Entitlements.application-identifier\" reaches
+into the nested dictionary."
+  (let ((temp (uiop:tmpize-pathname
+               (uiop:subpathname (uiop:temporary-directory) "profile.plist"))))
+    (unwind-protect
+         (progn
+           (with-open-file (out temp :direction :output :if-exists :supersede)
+             (write-string decoded out))
+           (multiple-value-bind (value err code)
+               (run (list "/usr/bin/plutil" "-extract" key "raw" "-o" "-"
+                          (uiop:native-namestring temp))
+                    :ignore-error-status t)
+             (declare (ignore err))
+             (and (zerop code) (plusp (length value)) value)))
+      (ignore-errors (delete-file temp)))))
+
+(defun application-identifier-matches-p (application-identifier bundle-identifier)
+  "Whether a profile's application-identifier covers BUNDLE-IDENTIFIER.
+
+The entitlement is TEAMID.com.example.app, or TEAMID.com.example.* for a
+wildcard profile. Getting this wrong produces a bundle that installs and then
+refuses to launch, with nothing on screen to say why, so it is worth checking
+at build time."
+  (let* ((dot (position #\. application-identifier))
+         (pattern (and dot (subseq application-identifier (1+ dot)))))
+    (cond ((null pattern) nil)
+          ((string= pattern "*") t)
+          ((uiop:string-suffix-p pattern ".*")
+           (let ((prefix (subseq pattern 0 (- (length pattern) 1))))
+             (and (>= (length bundle-identifier) (length prefix))
+                  (string= prefix bundle-identifier :end2 (length prefix)))))
+          (t (string= pattern bundle-identifier)))))
+
+(defun check-provisioning-profile (spec)
+  "Read the profile and refuse the obvious mismatches before signing."
+  (let ((profile (spec-provisioning-profile spec)))
+    (when profile
+      (let* ((decoded (decode-profile profile))
+             (application-identifier
+               (profile-value decoded "Entitlements.application-identifier"))
+             (team (profile-value decoded
+                                  "Entitlements.com.apple.developer.team-identifier")))
+        (unless application-identifier
+          (barf "~a has no application-identifier entitlement; it does not look ~
+                 like an iOS provisioning profile."
+                (uiop:native-namestring profile)))
+        (unless (application-identifier-matches-p application-identifier
+                                                  (spec-identifier spec))
+          (barf "The profile is for ~a but this app is ~a. They must match, or ~
+                 the app installs and then refuses to launch."
+                application-identifier (spec-identifier spec)))
+        (when (and team (spec-team-id spec)
+                   (string/= team (spec-team-id spec)))
+          (note "profile team is ~a but :DEVELOPMENT-TEAM says ~a"
+                team (spec-team-id spec)))
+        (list :application-identifier application-identifier :team team)))))
+
+(defun profile-entitlements-form (spec)
+  "Entitlements derived FROM the profile rather than guessed.
+
+iOS validates a binary's entitlements against its profile, so the profile is
+the authority on what they must be. get-task-allow is ours to choose -- it is
+what lets a debugger attach, and a distribution build must not have it."
+  (let ((details (check-provisioning-profile spec)))
+    (unless details
+      (barf "A device build needs :PROVISIONING-PROFILE."))
+    `(:dict
+      ("application-identifier" . ,(getf details :application-identifier))
+      ,@(when (getf details :team)
+          `(("com.apple.developer.team-identifier" . ,(getf details :team))))
+      ,@(when (spec-get-task-allow-p spec)
+          `(("get-task-allow" . :true))))))
 
 (defun effective-identity (spec)
   "The identity to sign with.

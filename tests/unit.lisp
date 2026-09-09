@@ -316,3 +316,30 @@ for -- which is exactly the sort of test that passes while proving nothing."
                  (is (nth-value 1 (ignore-errors
                                    (funcall symbol nil nil :int nil :default)))))
             (setf (symbol-function symbol) original))))))
+
+;;; ------------------------------------------------------------------
+;;; provisioning profiles
+;;;
+;;; The matching rule is pure and worth pinning: a mismatch produces an app
+;;; that installs and then refuses to launch, saying nothing.
+
+(deftest application-identifiers-match-exactly-or-by-wildcard
+  (is (app::application-identifier-matches-p "ABCDE12345.com.example.app"
+                                             "com.example.app"))
+  (is (not (app::application-identifier-matches-p "ABCDE12345.com.example.app"
+                                                  "com.example.other")))
+  ;; a team-wide wildcard
+  (is (app::application-identifier-matches-p "ABCDE12345.*" "anything.at.all"))
+  ;; a prefix wildcard
+  (is (app::application-identifier-matches-p "ABCDE12345.com.example.*"
+                                             "com.example.app"))
+  (is (not (app::application-identifier-matches-p "ABCDE12345.com.example.*"
+                                                  "com.other.app")))
+  ;; malformed
+  (is (not (app::application-identifier-matches-p "nodots" "com.example.app"))))
+
+(deftest a-device-build-without-a-profile-is-refused
+  (signals app::app-build-error
+    (app::profile-entitlements-form
+     (test-spec :platform (app::find-platform :device)
+                :provisioning-profile nil))))

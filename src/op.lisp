@@ -510,6 +510,10 @@ without a rebuild."
            (install-resources spec)
            (install-lisp-sources spec system)
            (install-provisioning-profile spec)
+           ;; Before anything expensive: a mismatched profile is a build-time
+           ;; fact and should not be discovered by an app that will not launch.
+           (unless (platform-simulator-p platform)
+             (check-provisioning-profile spec))
            (write-build-header objc-cache
                                :name (spec-name spec)
                                :delegate (app-delegate-class system)
