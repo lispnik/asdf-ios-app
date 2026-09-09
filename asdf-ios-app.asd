@@ -18,6 +18,7 @@
                              (:file "toolchain")
                              (:file "bootstrap")
                              (:file "bundle")
+                             (:file "icon")
                              (:file "compile")
                              (:file "link")
                              (:file "sign")

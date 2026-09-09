@@ -140,6 +140,7 @@ lands on the `Info.plist`. Reserved names are refused.
 | `:bundle-objc-main` | — | replaces `ECLMain.m` |
 | `:bundle-app-delegate` | `"ECLAppDelegate"` | |
 | `:bundle-output-directory` | `<system>/build/` | |
+| `:bundle-icon` | — | a `.xcassets` directory, compiled by `actool` |
 | `:remote-repl` | `nil` | `t`, a port, or a plist; see below |
 | `:code-signing-identity` | `:automatic` | ad hoc on simulator; required on device |
 | `:development-team`, `:provisioning-profile` | — | device |
@@ -294,6 +295,28 @@ version compiled on the Mac. Anything you intend to redefine at runtime, and
 that its own file calls, wants a `(declaim (notinline ...))`. The attractor
 carries one on `step-point` for exactly this reason.
 
+## Icons
+
+```lisp
+:bundle-icon "Attractor.xcassets"
+```
+
+iOS icons are **compiled, not copied**. `actool` turns the catalogue into an
+`Assets.car` and, separately, reports which `Info.plist` keys the result needs
+-- `CFBundleIcons`, `CFBundleIcons~ipad`, the file names it chose. Those keys
+are merged into the plist rather than guessed, because guessing them is how you
+get an app that installs with a white square and no error anywhere.
+
+Only a `.xcassets` is accepted; a bare PNG is refused. iOS wants a family of
+sizes and `actool` is the thing that knows which. The catalogue must hold
+exactly one `.appiconset`, and its name is read rather than assumed to be
+`AppIcon` -- a set called something else compiles to an `Assets.car` with no
+icon in it, silently.
+
+`examples/attractor/make-icon.py` writes a catalogue from scratch with the
+standard library alone, by iterating the attractor at 1024x1024. It is a
+reasonable starting point if you have artwork but no Xcode.
+
 ## Deploying
 
 ```lisp
@@ -305,6 +328,24 @@ carries one on `step-point` for exactly this reason.
 A device needs Developer Mode enabled on the phone (Settings › Privacy &
 Security › Developer Mode, then restart), the phone unlocked while connected,
 and a signing identity with a matching provisioning profile.
+
+### `.ipa`
+
+```lisp
+(ios-app:export-ipa #p"build/iphoneos/Hello.app")
+```
+
+A zip with the bundle under `Payload/`. Not a build product but a repackaging
+of one, so it has an entry point rather than a slot. A simulator bundle is
+refused: the two are indistinguishable from the outside -- same layout, same
+keys, an ad-hoc signature that verifies -- and the only symptom of shipping the
+wrong one is a rejected upload much later.
+
+Device builds also carry the `DT*` provenance keys (`DTPlatformName`,
+`DTSDKBuild`, `DTXcode`, `BuildMachineOSBuild`), which submission requires. The
+simulator gets none: they would be noise, and computing them means shelling out
+to `xcodebuild`, which a machine with only the command line tools does not
+have.
 
 ## Tests
 
@@ -332,10 +373,9 @@ because booting one is thirty seconds and varies by machine.
   `eval`. It binds loopback, which on a device means nothing can reach it
   without `iproxy`; do not widen `:interface` outside a network you own, and do
   not ship a build with `:remote-repl` on.
-- **No icons.** `:bundle-icon` is not implemented; iOS wants an asset catalogue
-  compiled by `actool`, which is a different tool and a different output from
-  the macOS `.icns` story.
-- **No `.ipa` export**, so no App Store submission path.
+- **`.ipa` export is unexercised on a real submission.** The layout is tested
+  (`Payload/<Name>.app`, on a bundle with the platform key rewritten), and the
+  simulator refusal is tested. Nothing has been uploaded to App Store Connect.
 - **Simulator only, in practice.** `:bundle-platforms (:device)` builds, but see
   the first point.
 - **A file is compiled twice** in the child — natively, then for iOS — so a

@@ -82,3 +82,65 @@ attribute and much slower to appear."
                (string-right-trim "/" (uiop:native-namestring bundle)))
          :echo-error t)
     device))
+
+;;; ------------------------------------------------------------------
+;;; .ipa
+;;;
+;;; An .ipa is a zip with the bundle under Payload/ and nothing else required.
+;;; It is not a build product here -- it is a repackaging of one -- so it has
+;;; its own entry point rather than a slot.
+
+(defun bundle-supported-platform (bundle)
+  "The bundle's CFBundleSupportedPlatforms entry, or NIL."
+  (let ((plist (uiop:subpathname (uiop:ensure-directory-pathname bundle)
+                                 "Info.plist")))
+    (unless (probe-file plist)
+      (barf "No Info.plist in ~a." (uiop:native-namestring bundle)))
+    (multiple-value-bind (value err code)
+        (run (list "/usr/bin/plutil" "-extract" "CFBundleSupportedPlatforms.0"
+                   "raw" "-o" "-" (uiop:native-namestring plist))
+             :ignore-error-status t)
+      (declare (ignore err))
+      (and (zerop code) (string-trim '(#\Space #\Newline) value)))))
+
+(defun export-ipa (bundle &key output)
+  "Package BUNDLE as an .ipa, returning its path.
+
+Refuses a simulator bundle. The two look identical from the outside -- same
+layout, same plist keys, an ad-hoc signature that verifies -- and the only
+symptom of shipping the wrong one is a rejected upload much later, so the
+platform is checked rather than assumed."
+  (let* ((bundle (uiop:ensure-directory-pathname bundle))
+         (platform (bundle-supported-platform bundle))
+         (name (car (last (pathname-directory bundle))))
+         (output (uiop:ensure-absolute-pathname
+                  (or output
+                      (merge-pathnames
+                       (make-pathname :name (pathname-name (pathname name))
+                                      :type "ipa")
+                       (uiop:pathname-parent-directory-pathname bundle)))
+                  #'uiop:getcwd)))
+    (unless (uiop:directory-exists-p bundle)
+      (barf "No bundle at ~a." (uiop:native-namestring bundle)))
+    (unless (equal platform "iPhoneOS")
+      (barf "~a is a ~a bundle. An .ipa must hold a device build: build with ~
+             :BUNDLE-PLATFORMS (:DEVICE)."
+            (uiop:native-namestring bundle) (or platform "simulator")))
+    (let ((staging (sibling-directory bundle (unique-suffix "ipa"))))
+      (unwind-protect
+           (let ((payload (uiop:subpathname staging "Payload/")))
+             (ensure-directories-exist payload)
+             ;; ditto rather than a Lisp copy: the bundle is signed, and a copy
+             ;; that drops an extended attribute invalidates the signature.
+             (run (list "/usr/bin/ditto"
+                        (string-right-trim "/" (uiop:native-namestring bundle))
+                        (string-right-trim
+                         "/" (uiop:native-namestring
+                              (uiop:subpathname payload (format nil "~a/" name))))))
+             (when (probe-file output) (delete-file output))
+             (run (list "/usr/bin/ditto" "-c" "-k" "--sequesterRsrc" "--keepParent"
+                        (string-right-trim "/" (uiop:native-namestring payload))
+                        (uiop:native-namestring output)))
+             (note "wrote ~a" (uiop:native-namestring output))
+             output)
+        (ignore-errors (uiop:delete-directory-tree staging :validate t))))))

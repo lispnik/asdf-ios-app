@@ -44,6 +44,7 @@
    (delegate      :initarg :bundle-app-delegate :initform nil :reader app-delegate-class)
    (trampolines   :initarg :bundle-trampolines :initform nil :reader app-trampolines)
    (remote-repl   :initarg :remote-repl :initform nil :reader app-remote-repl)
+   (icon          :initarg :bundle-icon :initform nil :reader app-icon)
    (objc-flags    :initarg :bundle-objc-flags :initform nil :reader app-objc-flags)
    (link-flags    :initarg :bundle-link-flags :initform nil :reader app-link-flags)
    (output-dir    :initarg :bundle-output-directory :initform nil :reader app-output-directory)
@@ -139,6 +140,9 @@ which."
        :provisioning-profile (and (app-provisioning-profile system)
                                   (merge-pathnames
                                    (app-provisioning-profile system) source))
+       :icon (and (app-icon system)
+                  (merge-pathnames (app-icon system) source))
+       :provenance (build-provenance-plist-for platform)
        :entitlements (app-entitlements system)
        :get-task-allow-p (app-get-task-allow-p system)))))
 
@@ -630,6 +634,10 @@ without a rebuild."
          (progn
            (make-skeleton spec :clean t)
            (write-info-plist spec)
+           ;; After the plist, not before: actool reports which keys its
+           ;; Assets.car needs and they are merged into what was just written.
+           (when (spec-icon spec)
+             (install-icon spec (icon-catalogue (spec-icon spec))))
            (write-pkginfo spec)
            (install-resources spec)
            (install-lisp-sources spec system)

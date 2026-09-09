@@ -125,6 +125,39 @@
 ;;; Booting a simulator is thirty seconds and varies by runner, so this is
 ;;; opt-in. It is also the only test that proves the thing actually works.
 
+(deftest an-ipa-is-refused-for-a-simulator-bundle
+  (with-fixture (bundle)
+    ;; The two bundles are indistinguishable from the outside -- same layout,
+    ;; same keys, an ad-hoc signature that verifies -- and the only symptom of
+    ;; shipping the wrong one is a rejected upload, weeks later.
+    (signals app::app-build-error (app:export-ipa bundle))))
+
+(deftest an-ipa-holds-the-bundle-under-payload
+  (with-fixture (bundle)
+    ;; A device build needs a signing identity and a provisioning profile, so
+    ;; the packaging is exercised on a copy with the platform key rewritten.
+    ;; It tests the layout and nothing about signing, which is the honest
+    ;; boundary of what can be checked without an account.
+    (let* ((copy (uiop:subpathname (uiop:temporary-directory) "ipa-test/Fixture.app/"))
+           (root (uiop:pathname-parent-directory-pathname copy)))
+      (when (probe-file root) (uiop:delete-directory-tree root :validate t))
+      (ensure-directories-exist root)
+      (app::run (list "/usr/bin/ditto"
+                      (string-right-trim "/" (uiop:native-namestring bundle))
+                      (string-right-trim "/" (uiop:native-namestring copy))))
+      (app::run (list "/usr/bin/plutil" "-replace" "CFBundleSupportedPlatforms"
+                      "-json" "[\"iPhoneOS\"]"
+                      (uiop:native-namestring
+                       (uiop:subpathname copy "Info.plist"))))
+      (unwind-protect
+           (let ((ipa (app:export-ipa copy)))
+             (is (probe-file ipa))
+             (let ((listing (app::run (list "/usr/bin/unzip" "-Z1"
+                                            (uiop:native-namestring ipa)))))
+               (is (search "Payload/Fixture.app/Info.plist" listing))
+               (is (search "Payload/Fixture.app/fixture" listing))))
+        (ignore-errors (uiop:delete-directory-tree root :validate t))))))
+
 (deftest the-app-runs-and-lisp-speaks
   (cond ((not (toolchain-ready-p))
          (skip "no iOS simulator ECL prefix"))

@@ -8,6 +8,7 @@
    #:make-app
    #:run-in-simulator
    #:install-on-device
+   #:export-ipa
    ;; toolchain
    #:bootstrap-ecl
    #:toolchain
@@ -87,6 +88,8 @@ it, so that the refusals can be tested on the machine this library is for.")
     "/usr/bin/otool"                                ; asserting the Mach-O platform
     "/usr/bin/codesign" "/usr/bin/security"         ; signing, profiles
     "/usr/bin/plutil"                               ; validation, reading profiles
+    "/usr/libexec/PlistBuddy"                       ; merging actool's partial plist
+    "/usr/bin/ditto" "/usr/bin/sw_vers"             ; .ipa export, provenance keys
     "/usr/bin/git" "/usr/bin/make")                 ; BOOTSTRAP-ECL
   "Every command line tool the build shells out to, checked up front so a
 missing one is reported before any work happens rather than from somewhere deep

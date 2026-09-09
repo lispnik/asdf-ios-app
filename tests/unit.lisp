@@ -498,3 +498,34 @@ for -- which is exactly the sort of test that passes while proving nothing."
                       (app::boot-form-for system nil))))
     (is (null (find #\Newline form)))
     (is (search ":remote-repl" form))))
+
+;;; ------------------------------------------------------------------
+;;; icons
+;;;
+;;; iOS icons are compiled, not copied: actool turns a .xcassets into an
+;;; Assets.car and reports the Info.plist keys the result needs. Everything
+;;; here is about refusing bad input before actool has to.
+
+(deftest an-icon-must-be-an-asset-catalogue
+  (let ((directory (asdf:system-relative-pathname "asdf-ios-app" "tests/fixture/")))
+    (signals app::app-build-error (app::icon-catalogue directory))
+    (signals app::app-build-error
+      (app::icon-catalogue (merge-pathnames "nowhere.xcassets/" directory)))))
+
+(deftest a-directorys-last-component-parses-as-a-name
+  ;; PATHNAME-DIRECTORY keeps it as one undivided string, so "AppIcon" and
+  ;; "appiconset" have to be recovered rather than read off.
+  (let ((parsed (app::directory-basename #p"/tmp/Foo.xcassets/AppIcon.appiconset/")))
+    (is= "AppIcon" (pathname-name parsed))
+    (is= "appiconset" (pathname-type parsed))))
+
+(deftest xcode-versions-compact-the-way-dtxcode-wants
+  (is= "1620" (app::compact-xcode-version "16.2"))
+  (is= "1630" (app::compact-xcode-version "16.3"))
+  (is= "0912" (app::compact-xcode-version "9.1.2")))
+
+(deftest the-simulator-carries-no-build-provenance
+  ;; DT* keys matter for submission and are noise otherwise, so they go on
+  ;; device builds alone -- and computing them shells out, which a simulator
+  ;; build should not have to do.
+  (is= nil (app::build-provenance-plist-for :simulator)))

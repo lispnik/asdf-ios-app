@@ -30,6 +30,8 @@
   url-schemes                           ; list of strings
   document-types                        ; list of DSL dicts
   extra-plist                           ; alist of key -> DSL value
+  icon                                  ; a .xcassets directory, compiled by actool
+  provenance                            ; DT* alist; device only, see icon.lisp
   resources                             ; extra files for the bundle root
   ecl-modules                           ; ("sockets" ...) linked and initialised
   (frameworks '("UIKit" "Foundation"))  ; -framework arguments
@@ -163,7 +165,10 @@ Reduce to the leading numeric components."
              ,@(when (spec-document-types spec)
                  `(("CFBundleDocumentTypes"
                     . (:array ,@(spec-document-types spec))))))))
-    (plist-merge base (spec-extra-plist spec))))
+    ;; Provenance first, so a user who wants to state their own DTPlatformName
+    ;; can; :BUNDLE-INFO-PLIST is the last word either way.
+    (plist-merge (plist-merge base (spec-provenance spec))
+                 (spec-extra-plist spec))))
 
 (defun write-info-plist (spec)
   (lint-plist (write-plist (info-plist-form spec) (info-plist-path spec))))
