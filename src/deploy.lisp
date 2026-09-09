@@ -26,20 +26,35 @@
              (string-right-trim "/" (uiop:native-namestring bundle))))
   device)
 
-(defun launch-in-simulator (bundle identifier
-                            &key (device (require-booted-simulator)) console)
-  "Launch and, with CONSOLE, return what the app writes to stdout and stderr.
+(defvar *console-seconds* 15
+  "How long LAUNCH-IN-SIMULATOR watches a console launch before giving up.")
 
-The console form is how a build machine sees anything at all from inside the
-app: there is no tty, and the alternative is reading the device log."
+(defun launch-in-simulator (bundle identifier
+                            &key (device (require-booted-simulator)) console
+                                 (seconds *console-seconds*))
+  "Launch, and with CONSOLE return what the app writes to stdout and stderr.
+
+The console form has to be run asynchronously and killed. simctl's
+--console-pty stays attached until the app exits, and a UIKit app does not
+exit -- so calling it synchronously does not capture output, it hangs the
+build. Reading the device log instead would avoid that, but it is far harder to
+attribute and much slower to appear."
   (install-in-simulator bundle :device device)
-  (if console
-      ;; --console-pty stays attached until the app exits, so this is only
-      ;; usable for an app that finishes on its own.
-      (run (list "/usr/bin/xcrun" "simctl" "launch" "--console-pty"
-                 device identifier)
-           :ignore-error-status t)
-      (run (list "/usr/bin/xcrun" "simctl" "launch" device identifier))))
+  (if (not console)
+      (run (list "/usr/bin/xcrun" "simctl" "launch" device identifier))
+      (let ((log (uiop:tmpize-pathname
+                  (uiop:subpathname (uiop:temporary-directory)
+                                    "asdf-ios-app-console.log"))))
+        (unwind-protect
+             (let ((process (uiop:launch-program
+                             (list "/usr/bin/xcrun" "simctl" "launch"
+                                   "--console-pty" device identifier)
+                             :output log :error-output :output)))
+               (unwind-protect (sleep seconds)
+                 (ignore-errors (uiop:terminate-process process :urgent t))
+                 (ignore-errors (uiop:wait-process process)))
+               (if (probe-file log) (uiop:read-file-string log) ""))
+          (ignore-errors (delete-file log))))))
 
 (defun terminate-in-simulator (identifier &key (device (require-booted-simulator)))
   (run (list "/usr/bin/xcrun" "simctl" "terminate" device identifier)

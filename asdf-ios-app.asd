@@ -31,7 +31,8 @@
   :serial t
   :components ((:module "tests"
                 :components ((:file "framework")
-                             (:file "unit"))))
+                             (:file "unit")
+                             (:file "build"))))
   :perform (test-op (o c)
              (let ((failures (uiop:symbol-call :asdf-ios-app-tests '#:run-all)))
                (unless (zerop failures)

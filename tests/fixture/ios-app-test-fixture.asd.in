@@ -1,0 +1,23 @@
+;;;; ios-app-test-fixture.asd
+;;;;
+;;;; Checked in as .asd.in and renamed on copy. A recursive source registry
+;;;; over this repository would otherwise register the fixture globally, and a
+;;;; test system that turns up in everyone's registry is a nuisance.
+
+(defsystem "ios-app-test-fixture"
+  :defsystem-depends-on ("asdf-ios-app")
+  :class :ios-app-system
+  :build-operation "ios-app-op"
+  :entry-point "ios-app-fixture:start"
+  :version "1.0.0"
+  :serial t
+  :components ((:file "main"))
+
+  :bundle-identifier "org.asdf-ios-app.fixture"
+  :bundle-name "Fixture"
+  :bundle-executable "fixture"
+  :bundle-platforms (:simulator)
+  ;; Linked and initialised on purpose: (require 'sockets) at boot is where the
+  ;; load-the-host-fasl bug shows up, and it only shows up in the simulator,
+  ;; where the compiled-in ECLDIR is a real readable directory on the Mac.
+  :bundle-ecl-modules ("sockets" "sb-bsd-sockets"))

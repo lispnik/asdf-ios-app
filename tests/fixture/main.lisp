@@ -1,4 +1,4 @@
-;;;; fixture.lisp -- the smallest thing that proves Lisp is running on iOS.
+;;;; main.lisp -- the smallest thing that proves Lisp is running on iOS.
 
 (defpackage #:ios-app-fixture
   (:use #:cl)
@@ -18,4 +18,11 @@
     (declare (ignore f))
     (format t "FIXTURE: defined at runtime, (defined-at-runtime 14) = ~d~%"
             (funcall (read-from-string "ios-app-fixture::defined-at-runtime") 14)))
+  ;; Proves the module init story: names pushed onto *MODULES* before the
+  ;; inits ran, so this does not go hunting for a .fas under ECLDIR.
+  (handler-case
+      (progn (require :sockets)
+             (format t "FIXTURE: sockets present: ~a~%"
+                     (and (find-package "SB-BSD-SOCKETS") t)))
+    (error (e) (format t "FIXTURE: sockets FAILED: ~a~%" e)))
   (finish-output))

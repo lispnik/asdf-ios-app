@@ -21,7 +21,8 @@
    #:*host-ecl*
    #:*cache-directory*
    #:*ecl-repository*
-   #:*ecl-revision*))
+   #:*ecl-revision*
+   #:*force-compile*))
 
 (in-package #:asdf-ios-app)
 
@@ -50,6 +51,21 @@ in the project."
       (format *standard-output* "~&~a~%" err)
       (finish-output *standard-output*))
     (values out err code)))
+
+(defun write-file-if-changed (path content)
+  "Write CONTENT to PATH only if it differs from what is there.
+
+Rewriting an unchanged generated file is not free: its write date is what
+decides whether everything that includes it has to be recompiled, so a header
+rewritten on every build means the Objective-C is rebuilt on every build."
+  (let ((existing (and (probe-file path)
+                       (ignore-errors (uiop:read-file-string path)))))
+    (unless (equal existing content)
+      (ensure-directories-exist path)
+      (with-open-file (out path :direction :output :if-exists :supersede
+                                :external-format :utf-8)
+        (write-string content out))))
+  path)
 
 (defun note (format-control &rest args)
   "Say something on the build log. Deliberately not WARN: a build driver may

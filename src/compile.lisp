@@ -93,12 +93,30 @@ about a package rather than about a build."
                  :type "o"
                  :defaults cache))
 
+(defvar *force-compile* nil
+  "Bind to T to recompile every file even when its object looks current.")
+
+(defun object-is-current-p (source object)
+  "Whether OBJECT can be reused.
+
+Only the source's own write date is consulted. A change to a macro in another
+file will not invalidate this one, which is the same bargain every make-style
+build strikes; :FORCE-COMPILE and deleting the cache are the ways out. Getting
+this wrong in the other direction -- recompiling a whole dependency closure on
+every build -- costs a minute per build forever."
+  (and (not *force-compile*)
+       (probe-file object)
+       (probe-file source)
+       (>= (file-write-date object) (file-write-date source))))
+
 (defun cross-compile-file (source cache)
   "Compile one source file to an iOS object.
 
 :SYSTEM-P T is the whole trick: it stops at the object file and never builds
 or loads a fasl, which is what makes this safe to do in a host image."
   (let ((output (object-path source cache)))
+    (when (object-is-current-p source output)
+      (return-from cross-compile-file output))
     (ensure-directories-exist output)
     (multiple-value-bind (result warnings failure)
         (compile-file source :system-p t :output-file output)
