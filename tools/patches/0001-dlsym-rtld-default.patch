@@ -1,0 +1,21 @@
+diff --git a/src/c/ffi/libraries.d b/src/c/ffi/libraries.d
+index cb9c10041..f4db46362 100644
+--- a/src/c/ffi/libraries.d
++++ b/src/c/ffi/libraries.d
+@@ -368,7 +368,16 @@ ecl_library_symbol(cl_object block, const char *symbol, bool lock) {
+     }
+ #endif
+ #ifdef HAVE_DLFCN_H
++    /* A null handle is not the global scope on Darwin, where RTLD_DEFAULT is
++       (void *)-2; dlsym(0, ...) simply returns NULL there. That matters for a
++       statically linked image, in which every foreign symbol the program will
++       ever see is already in the main executable and RTLD_DEFAULT is the only
++       way to reach it. */
++# ifdef RTLD_DEFAULT
++    p = dlsym(RTLD_DEFAULT, symbol);
++# else
+     p = dlsym(0, symbol);
++# endif
+ #endif
+ #if !defined(ECL_MS_WINDOWS_HOST) && !defined(HAVE_DLFCN_H)
+     p = 0;

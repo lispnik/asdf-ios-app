@@ -1,0 +1,21 @@
+# Compiled Lisp
+*.fasl
+*.fas
+*.fasc
+*.lib
+*.o
+*.a
+
+# Build output
+*.app/
+.*.app.staging-*/
+.*.app.trash-*/
+build/
+
+# Cross-compiled objects and the generated init header
+aot/
+
+# Editor noise
+*~
+\#*\#
+.\#*
