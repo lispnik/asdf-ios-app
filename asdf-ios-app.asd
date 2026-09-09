@@ -9,6 +9,11 @@
   :serial t
   :components ((:module "src"
                 :components ((:file "package")
+                             ;; Loaded here as well as cross-compiled into the
+                             ;; app: putting the boot logic in Lisp is only
+                             ;; worth anything if it can be exercised on the
+                             ;; host, which needs it in this system too.
+                             (:file "runtime")
                              (:file "plist")
                              (:file "toolchain")
                              (:file "bootstrap")

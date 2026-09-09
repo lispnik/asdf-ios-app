@@ -7,10 +7,15 @@
   :build-operation "ios-app-op"
   :entry-point "hello-ios:start"
   :version "1.0.0"
+  :depends-on ("hello-scripts")
   :serial t
   :components ((:file "hello"))
 
   :bundle-identifier "org.asdf-ios-app.hello"
   :bundle-name "Hello"
   :bundle-executable "hello"
-  :bundle-platforms (:simulator))
+  :bundle-platforms (:simulator)
+
+  ;; Compiled by default; this one system ships as source instead, so it can be
+  ;; edited without rebuilding anything.
+  :bundle-interpreted ("hello-scripts"))

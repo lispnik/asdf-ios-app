@@ -14,4 +14,8 @@ run loop has not started yet, and blocking here means an app that never draws."
           (machine-type))
   (format t "HELLO: compiled ahead of time, and still live: ~a~%"
           (eval '(let ((x 6) (y 7)) (* x y))))
+  ;; HELLO-SCRIPTS is interpreted and loaded from the bundle at boot, so this
+  ;; call reaches a function that was never compiled into the binary.
+  (format t "HELLO: from interpreted source: ~a~%"
+          (funcall (read-from-string "hello-scripts:greeting")))
   (finish-output))

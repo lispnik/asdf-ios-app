@@ -68,6 +68,7 @@ it, so that the refusals can be tested on the machine this library is for.")
   '("/usr/bin/xcrun"                                ; SDK paths, actool, simctl
     "/usr/bin/clang"                                ; the whole build is clang
     "/usr/bin/nm" "/usr/bin/ar" "/usr/bin/ranlib"   ; init symbols, archives
+    "/usr/bin/otool"                                ; asserting the Mach-O platform
     "/usr/bin/codesign" "/usr/bin/security"         ; signing, profiles
     "/usr/bin/plutil"                               ; validation, reading profiles
     "/usr/bin/git" "/usr/bin/make")                 ; BOOTSTRAP-ECL

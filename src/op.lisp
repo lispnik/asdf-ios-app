@@ -191,6 +191,39 @@ COMPILE-FILE fails in a way that names the directory and explains nothing."
                              :keep-operation 'asdf:compile-op
                              :component-type 'asdf:cl-source-file)))
 
+(defun warn-about-interpreted-dependencies (system)
+  "Say something when compiled code depends on an interpreted system.
+
+Compiled code is initialised when the library's module init runs, which is
+before any bundled source is LOADed. So a compiled file that references an
+interpreted package AT LOAD TIME -- an IN-PACKAGE, a macro from it, a
+top-level call -- fails, because that package does not exist yet.
+
+A reference deferred to run time is fine, and is the intended shape: the whole
+point of :BUNDLE-INTERPRETED is a compiled core calling out to an editable
+skin. examples/hello does exactly that, through READ-FROM-STRING and FUNCALL.
+
+Which of the two a file does is not decidable from here, so this is a note and
+not an error. Refusing outright would forbid the ordinary case -- an
+application that depends on its own scripts system -- to prevent a mistake the
+person can see in their own source."
+  (let ((interpreted (interpreted-system-names system))
+        (dependents '()))
+    (when interpreted
+      (let ((seen '()))
+        (dolist (component (source-files-in-order system))
+          (let ((name (component-system-name component)))
+            (cond ((member name interpreted :test #'string=) (pushnew name seen
+                                                                     :test #'string=))
+                  (seen (pushnew name dependents :test #'string=))))))
+      (when dependents
+        (note "~{~a~^, ~} ~:[is~;are~] compiled but ~:*~:[comes~;come~] after ~
+               the interpreted ~{~a~^, ~}. That is fine as long as nothing in ~
+               them touches an interpreted package at LOAD time -- bundled ~
+               source is loaded after every compiled module has initialised."
+              (reverse dependents) (rest dependents) interpreted))))
+  t)
+
 (defun cross-compiled-source-files (system)
   "Every source file to compile into the app, in ASDF's own dependency order.
 
@@ -530,6 +563,7 @@ why these do not need looking up."
          (cache (uiop:subpathname (app-output-root s) "cache/")))
     (dolist (platform platforms)
       (check-ecl-prefix (platform-key platform)))
+    (warn-about-interpreted-dependencies s)
     ;; One child for every platform: loading the system natively is the
     ;; expensive half and there is no reason to do it twice.
     (let ((products (getf (run-cross-compile s (mapcar #'platform-key platforms)

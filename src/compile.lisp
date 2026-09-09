@@ -83,9 +83,12 @@ alexandria-2, each with its own package.lisp, arrays.lisp, lists.lisp and more.
 Keyed on the basename alone, the second package.o overwrote the first, the
 archive never defined ALEXANDRIA.1.0.0, and the app died at boot complaining
 about a package rather than about a build."
+  ;; NAMESTRING rather than TRUENAME: ASDF hands us absolute pathnames already,
+  ;; and requiring the file to exist would make this a partial function that
+  ;; cannot be tested without touching the disk.
   (make-pathname :name (format nil "~a-~(~8,'0x~)"
                                (pathname-name source)
-                               (logand (sxhash (namestring (truename source)))
+                               (logand (sxhash (namestring source))
                                        #xffffffff))
                  :type "o"
                  :defaults cache))
