@@ -42,6 +42,7 @@
    (objc-sources  :initarg :bundle-objc-sources :initform nil :reader app-objc-sources)
    (objc-main     :initarg :bundle-objc-main :initform nil :reader app-objc-main)
    (delegate      :initarg :bundle-app-delegate :initform nil :reader app-delegate-class)
+   (trampolines   :initarg :bundle-trampolines :initform nil :reader app-trampolines)
    (objc-flags    :initarg :bundle-objc-flags :initform nil :reader app-objc-flags)
    (link-flags    :initarg :bundle-link-flags :initform nil :reader app-link-flags)
    (output-dir    :initarg :bundle-output-directory :initform nil :reader app-output-directory)
@@ -270,6 +271,23 @@ an iOS bundle, in the host image."
              (member name interpreted :test #'string=))))
      (source-files-in-order system))))
 
+(defun trampoline-files (system)
+  "Lisp files cross-compiled for the target and NEVER compiled on the host.
+
+This is where FFI:C-INLINE belongs, and the exemption is the whole point.
+Ordinary sources are compiled twice -- natively in the child, so the cross
+compiler has their macros, and then for iOS -- and C-INLINE does not survive
+the native pass. It cannot be interpreted at all, and compiling it natively
+means ECL builds and LINKS a host fasl, so anything referring to CoreGraphics
+or objc_msgSend fails at link time against the macOS toolchain.
+
+A trampoline needs no macros from anywhere, so skipping the native pass costs
+nothing. And with the C compiler doing the work, struct returns and variadic
+calls -- the two things ECL's dynamic FFI cannot express at all -- come free."
+  (mapcar (lambda (file)
+            (merge-pathnames file (asdf:system-source-directory system)))
+          (app-trampolines system)))
+
 (defun interpreted-source-files (system)
   (let ((interpreted (interpreted-system-names system)))
     (when interpreted
@@ -442,9 +460,12 @@ request naming the library and init symbol built for each platform."
          (results '()))
     (dolist (key (getf request :platforms))
       (let* ((platform (find-platform key))
-             (sources (cons (system-file "src/runtime.lisp")
-                            (mapcar #'asdf:component-pathname
-                                    (cross-compiled-source-files system)))))
+             ;; Trampolines last: they may call into the application, and nothing
+         ;; in the application can call them at load time.
+         (sources (append (list (system-file "src/runtime.lisp"))
+                          (mapcar #'asdf:component-pathname
+                                  (cross-compiled-source-files system))
+                          (trampoline-files system))))
         (multiple-value-bind (library init)
             (cross-compile-lisp sources
                                 :platform platform

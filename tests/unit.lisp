@@ -372,3 +372,28 @@ for -- which is exactly the sort of test that passes while proving nothing."
   (let* ((spec (test-spec :ecl-modules '("sockets")))
          (modules (app::ecl-module-inits spec)))
     (is= '(("SOCKETS" . "init_lib_SOCKETS")) modules)))
+
+;;; ------------------------------------------------------------------
+;;; trampolines
+;;;
+;;; Cross-compiled only, never compiled on the host. That exemption is the
+;;; whole feature: FFI:C-INLINE cannot be interpreted, and compiling it
+;;; natively makes ECL LINK a host fasl, which fails the moment the C mentions
+;;; CoreGraphics or objc_msgSend.
+
+(deftest trampoline-files-resolve-against-the-system
+  (let ((system (asdf:find-system "hello-ios" nil)))
+    (if (null system)
+        (skip "hello-ios is not in the registry")
+        ;; hello-ios declares none, and the empty case must stay empty rather
+        ;; than resolving to the system directory.
+        (is= '() (app::trampoline-files system)))))
+
+(deftest trampoline-paths-are-merged-against-the-system-directory
+  (let* ((system (asdf:find-system "asdf-ios-app"))
+         (directory (asdf:system-source-directory system)))
+    ;; A relative name must land beside the .asd, not in the current directory,
+    ;; which is wherever the build happened to be started from.
+    (is= (namestring (merge-pathnames "glue.lisp" directory))
+         (namestring
+          (merge-pathnames "glue.lisp" (asdf:system-source-directory system))))))
