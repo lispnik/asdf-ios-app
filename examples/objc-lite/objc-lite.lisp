@@ -28,6 +28,27 @@
 (defvar *object-class*    (foreign-function "object_getClass"))
 (defvar *class-name*      (foreign-function "class_getName"))
 
+(defvar *foreign* (make-hash-table :test #'equal))
+
+(defun foreign (name)
+  "The address of the C function NAME, looked up once and remembered.
+
+Looked up *lazily*, which matters more than it looks. A DEFVAR whose initialiser
+calls SI:FIND-FOREIGN-SYMBOL runs at load time -- including during the child's
+native pass, on the Mac, where the application's frameworks are not linked. A
+CoreGraphics symbol resolved that way fails the build before it ever reaches
+the phone:
+
+    Cross-compilation failed: FIND-FOREIGN-SYMBOL: Could not load foreign
+    symbol \"CGPathCreateMutable\" from module :DEFAULT
+
+The msgSend lookups above get away with being eager only because libobjc is in
+every macOS process. Anything from a framework you named in :BUNDLE-FRAMEWORKS
+should come through here."
+  (or (gethash name *foreign*)
+      (setf (gethash name *foreign*)
+            (si:find-foreign-symbol name :default :pointer-void 0))))
+
 (defvar *classes* (make-hash-table :test #'equal))
 (defvar *selectors* (make-hash-table :test #'equal))
 
@@ -103,15 +124,40 @@ foreign buffer, so two of these in a row can quietly become the same text."
 ;;; ------------------------------------------------------------------
 ;;; strings
 
+(defun utf-8-bytes (string)
+  "STRING's UTF-8 encoding, as a BASE-STRING of one character per octet.
+
+:CSTRING hands the value to ECL's NULL-TERMINATED-BASE-STRING, which refuses
+anything outside BASE-CHAR -- so passing a Lisp string containing a theta or an
+em dash straight through fails with
+
+    Cannot coerce string ... to a base-string
+
+rather than arriving mangled. Encoding first turns every character into octets
+that are base-chars by construction, and -stringWithUTF8String: is expecting
+exactly those octets at the other end."
+  (map 'base-string #'code-char
+       (ext:string-to-octets string :external-format :utf-8)))
+
 (defun nsstr (string)
   (si:call-cfun *msg-send* :pointer-void
                 '(:pointer-void :pointer-void :cstring)
-                (list (cls "NSString") (sel "stringWithUTF8String:") string)))
+                (list (cls "NSString") (sel "stringWithUTF8String:")
+                      (utf-8-bytes string))))
 
 (defun lisp-string (nsstring)
+  "NSSTRING's contents. The mirror of NSSTR: -UTF8String hands back octets, and
+reading them as characters would turn any non-ASCII into mojibake."
   (if (or (null nsstring) (si:null-pointer-p nsstring))
       ""
-      (or (send-string nsstring "UTF8String") "")))
+      (let ((octets (send-string nsstring "UTF8String")))
+        (if (null octets)
+            ""
+            (or (ignore-errors
+                 (ext:octets-to-string
+                  (map '(vector (unsigned-byte 8)) #'char-code octets)
+                  :external-format :utf-8))
+                octets)))))
 
 ;;; ------------------------------------------------------------------
 ;;; the usual objects

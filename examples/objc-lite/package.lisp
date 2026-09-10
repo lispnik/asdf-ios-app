@@ -3,11 +3,11 @@
   (:nicknames #:oc)
   (:export
    ;; naming
-   #:cls #:sel #:class-name-of #:*null*
+   #:cls #:sel #:class-name-of #:*null* #:foreign
    ;; sending
    #:send #:send-long #:send-double #:send-string #:send-bool
    ;; strings
-   #:nsstr #:lisp-string
+   #:nsstr #:lisp-string #:utf-8-bytes
    ;; making things
    #:new #:alloc-init #:system-button #:on-tap #:key-window #:root-view #:root-controller
    #:color #:system-color #:font #:mono-font

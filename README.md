@@ -47,13 +47,23 @@ you can write. There are more below.
 </tr>
 <tr>
   <th align="center">chart</th>
-  <th align="center">attractor</th>
-  <th align="center">abi-probe</th>
+  <th align="center">layers</th>
+  <th align="center">physics</th>
 </tr>
 <tr>
   <td><img src="doc/screenshots/chart.png" width="210" alt="A sine curve drawn as SVG in a web view, with a table of details below it."></td>
+  <td><img src="doc/screenshots/layers.png" width="210" alt="A ten-petalled rose curve stroking itself onto a gradient, with a glowing dot at the tip of the line."></td>
+  <td><img src="doc/screenshots/physics.png" width="210" alt="Coloured squares and circles falling and settling into a heap at the bottom of a dark screen."></td>
+</tr>
+<tr>
+  <th align="center">attractor</th>
+  <th align="center">abi-probe</th>
+  <th></th>
+</tr>
+<tr>
   <td><img src="doc/screenshots/attractor.png" width="210" alt="A de Jong strange attractor in pale blue on black, filling the screen."></td>
   <td><img src="doc/screenshots/abi-probe.png" width="210" alt="A dense monospaced report comparing si:call-cfun against the C compiler."></td>
+  <td></td>
 </tr>
 </table>
 
@@ -69,6 +79,8 @@ nothing to photograph; three of the six above are built on it.
 | `repl` | a REPL with a keyboard | a `UITextFieldDelegate` written in Lisp, and `keyboardLayoutGuide` instead of a `CGRect` |
 | `browser` | the running image, as a table | a `UITableViewDataSource` written in Lisp — packages, symbols, and what a symbol is |
 | `chart` | SVG in a `WKWebView` | a framework beyond UIKit, a bundled resource, and state that survives a relaunch |
+| `layers` | a rose curve drawing itself | Core Animation — a `CGPath` computed in Lisp, stroked by a `CAShapeLayer`, with a dot riding the tip |
+| `physics` | shapes falling into a heap | UIKit Dynamics — gravity, collision, elasticity and rotation, with the struct boundary on both sides at once |
 | `attractor` | a strange attractor you can drag | `drawRect:` in Lisp, gestures, trampolines, and redefining the mathematics over SLY |
 | `abi-probe` | a report, not an interface | exactly which structs `si:call-cfun` can carry, measured |
 
@@ -79,13 +91,19 @@ Build any of them with `asdf:make`, with `examples/` on your source registry:
 (ios-app:run-in-simulator "browser")
 ```
 
-**Three of them need no C compiler at build time and no `:bundle-trampolines`.**
+**Five of them need no C compiler at build time and no `:bundle-trampolines`.**
 That surprises people, and it is worth saying why: the ECL compiler handles
 `ffi:defcallback` itself and emits an ordinary C function, so an Objective-C
 class whose methods are Lisp costs nothing extra — *as long as every argument
 and the return value is a scalar or a pointer*. `UITableViewDataSource` is
-`NSInteger` and `id` throughout. `drawRect:` is not, which is why the attractor
-is the one example that needs a trampoline file.
+`NSInteger` and `id` throughout, and so is most of Core Animation — even Core
+Graphics' path API, whose `CGAffineTransform` argument is a *pointer* to a
+struct rather than one by value.
+
+The two that do need a trampoline show why. `drawRect:` receives a `CGRect` by
+value, and `-locationInView:` *returns* a `CGPoint` — and `physics/glue.lisp`,
+at eight lines, is what the escape hatch looks like when you need it for
+exactly two functions.
 
 ### `objc-lite`
 
@@ -131,9 +149,16 @@ A few things learned writing them, since each cost more than it should have:
 - **`init` often avoids a struct.** `-[UITableView initWithFrame:style:]` and
   `-[WKWebView initWithFrame:configuration:]` both want a `CGRect`; plain
   `-init` does not, and gives the same defaults.
+- **Resolve framework symbols lazily.** A `defvar` calling
+  `si:find-foreign-symbol` runs during the child's *native* pass too, on the
+  Mac, where the app's frameworks are not linked — so a CoreGraphics symbol
+  fails the build before ever reaching the phone. `oc:foreign` defers it.
+- **`:cstring` demands a `base-string`.** A Lisp string containing `θ` fails
+  with *Cannot coerce string … to a base-string* rather than arriving mangled,
+  so `oc:nsstr` encodes to UTF-8 octets first.
 - **An entry point that signals now shows the condition on screen.** There is no
   terminal behind an app, and a blank white window is the least useful thing a
-  toolkit can hand you.
+  toolkit can hand you. It found two of the bugs in this list.
 
 ## Getting a toolchain
 
