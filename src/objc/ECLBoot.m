@@ -130,6 +130,29 @@ static cl_object OnMainCall(cl_object thunk)
   si_safe_eval(3, ecl_read_from_cstring("(ext:install-bytecodes-compiler)"),
                ECL_NIL, ECL_NIL);
 
+  /* Detach SYS:help.doc from the documentation pool, BEFORE any module runs.
+     SI::*DOCUMENTATION-POOL* is a hash table and that pathname, and writing a
+     docstring walks both -- so an ordinary
+
+         (setf (documentation 'foo 'function) "...")
+
+     in a library's load-time code opens a file no bundle contains. This has to
+     happen here rather than in the boot form below, because those forms run
+     during ecl_init_module and the boot form does not run until afterwards.
+
+     The failure it prevents is a bad one to debug. The FILE-ERROR arrives
+     before the debugger is usable, so ECL reports an unbounded recursion on
+     SI:*BREAK-LOCALS* and the process dies on SIGSEGV with the real cause
+     several screens up -- and none of it happens on the simulator, where SYS:
+     resolves to a readable directory on the Mac. */
+  si_safe_eval(3, ecl_read_from_cstring(
+                 "(let ((p (find-symbol \"*DOCUMENTATION-POOL*\" \"SI\")))"
+                 "  (when (and p (boundp p))"
+                 "    (setf (symbol-value p)"
+                 "          (remove-if (lambda (e) (or (stringp e) (pathnamep e)))"
+                 "                     (symbol-value p)))))"),
+               ECL_NIL, ECL_NIL);
+
   /* Declare every linked module present BEFORE initialising any of them.
      A module's own load-time code may REQUIRE another, and REQUIRE otherwise
      goes looking for a .fas under the ECLDIR compiled into this build -- which

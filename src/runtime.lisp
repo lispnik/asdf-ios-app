@@ -22,6 +22,7 @@
            #:*entry-point*
            #:on-main
            #:with-main-thread
+           #:detach-documentation-file
            #:start-remote-repl
            #:*remote-repl-port*
            #:boot-failure))
@@ -176,6 +177,29 @@ one is reported and skipped rather than being allowed to stop the launch."
 ;;; ------------------------------------------------------------------
 ;;; boot
 
+(defun detach-documentation-file ()
+  "Stop ECL looking for SYS:help.doc, which no bundle contains.
+
+SI::*DOCUMENTATION-POOL* is a hash table and the pathname \"SYS:help.doc\", and
+writing a docstring walks both -- so an ordinary
+
+    (setf (documentation 'foo 'function) \"...\")
+
+at load time opens that file. There is no such file in an app bundle, and the
+resulting FILE-ERROR arrives before the debugger is usable, so ECL reports it
+as an unbounded recursion on SI:*BREAK-LOCALS* and the process dies on SIGSEGV
+with the real cause four screens up.
+
+Worse on the simulator, where it does not fail: SYS: resolves to a readable
+directory on the Mac, so the same image works there and dies on a phone. That
+is the failure this whole file exists to prevent, so the pool keeps its hash
+table and loses the file."
+  (let ((pool (find-symbol "*DOCUMENTATION-POOL*" "SI")))
+    (when (and pool (boundp pool))
+      (setf (symbol-value pool)
+            (remove-if #'(lambda (entry) (or (stringp entry) (pathnamep entry)))
+                       (symbol-value pool))))))
+
 (defun guard-dynamic-callbacks ()
   "Make SI::MAKE-DYNAMIC-CALLBACK signal rather than kill the process.
 
@@ -215,6 +239,7 @@ remote REPL with :REMOTE-REPL T and build it by hand."))
 (defun %boot (&key entry-point manifest remote-repl (guard-callbacks t))
   "Called from ECLBoot once the image is up. Returns; the run loop follows."
   (setf *bundle-path* (symbol-value (find-symbol "*BUNDLE-PATH*" "CL-USER")))
+  (detach-documentation-file)
   (when guard-callbacks
     (guard-dynamic-callbacks))
   (when manifest

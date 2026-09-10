@@ -593,3 +593,58 @@ for -- which is exactly the sort of test that passes while proving nothing."
     (is= "(1 (2 (3 (4 5))))"
          (app::with-readable-printer
            (prin1-to-string '(1 (2 (3 (4 5)))))))))
+
+;;; ------------------------------------------------------------------
+;;; a wildcard profile is a pattern, not an entitlement
+
+(deftest a-wildcard-profile-specialises-to-this-app
+  "Xcode's default team profile is Q47YS469F2.*, and the binary must claim the
+one app it is. Measured on a device: copying the pattern through gets
+
+    Upgrade's application-identifier entitlement string (Q47YS469F2.*) does not
+    match installed application's application-identifier string (...)
+
+from the installer, and quietly gives every app built from one profile the same
+identifier -- which is what keychain access groups are keyed on."
+  (is= "Q47YS469F2.org.example.app"
+       (app::specialised-application-identifier
+        "Q47YS469F2.*" "org.example.app" "Q47YS469F2"))
+  (is= "Q47YS469F2.org.example.app"
+       (app::specialised-application-identifier
+        "Q47YS469F2.org.example.*" "org.example.app" "Q47YS469F2")))
+
+(deftest an-exact-profile-is-left-alone
+  "It already names one app, and it has been checked against this bundle."
+  (is= "Q47YS469F2.org.example.app"
+       (app::specialised-application-identifier
+        "Q47YS469F2.org.example.app" "org.example.app" "Q47YS469F2")))
+
+(deftest specialising-falls-back-to-the-profiles-own-prefix
+  "When the profile carries no separate team field, the prefix is the team."
+  (is= "ABCDE12345.org.example.app"
+       (app::specialised-application-identifier
+        "ABCDE12345.*" "org.example.app" nil)))
+
+;;; ------------------------------------------------------------------
+;;; SYS:help.doc is not in a bundle
+
+(deftest the-documentation-file-is-detached-from-the-pool
+  "ECL's documentation pool is a hash table AND the pathname SYS:help.doc, so
+an ordinary (setf (documentation ...)) at load time opens that file. No bundle
+contains it. The failure is worse than it sounds: it arrives before the debugger
+is usable, so ECL reports an unbounded recursion on SI:*BREAK-LOCALS* and dies
+on SIGSEGV with the real cause well out of sight -- and it does not happen on
+the simulator, where SYS: resolves to a readable directory on the Mac."
+  (let ((pool (find-symbol "*DOCUMENTATION-POOL*" "SI")))
+    (if (not (and pool (boundp pool)))
+        (skip "not ECL, or no documentation pool")
+        (let ((saved (symbol-value pool)))
+          (unwind-protect
+               (progn
+                 (setf (symbol-value pool)
+                       (list (make-hash-table :test #'equal) "SYS:help.doc"))
+                 (ios-app-runtime:detach-documentation-file)
+                 (is (notany (lambda (entry) (or (stringp entry) (pathnamep entry)))
+                             (symbol-value pool)))
+                 (is (some #'hash-table-p (symbol-value pool))))
+            (setf (symbol-value pool) saved))))))

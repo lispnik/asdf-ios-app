@@ -119,6 +119,31 @@ at build time."
                 team (spec-team-id spec)))
         (list :application-identifier application-identifier :team team)))))
 
+(defun specialised-application-identifier (application-identifier bundle-identifier team)
+  "The application-identifier entitlement for THIS app, from the profile's.
+
+A wildcard profile's identifier is a PATTERN -- Q47YS469F2.* -- and a pattern is
+not an entitlement. The binary must claim the one app it actually is, which is
+what Xcode writes and what the installer compares against:
+
+    Upgrade's application-identifier entitlement string (Q47YS469F2.*) does not
+    match installed application's application-identifier string
+    (Q47YS469F2.org.example.app); rejecting upgrade.
+
+measured on a device. Copying the pattern through also signs every app built
+from one team profile with an identical identifier, which is what keychain
+access groups and app groups are keyed on -- so it is wrong in a quieter way
+even when nothing rejects it.
+
+An exact profile is returned unchanged: it already names one app, and it has
+been checked against this bundle by CHECK-PROVISIONING-PROFILE."
+  (let* ((dot (position #\. application-identifier))
+         (pattern (and dot (subseq application-identifier (1+ dot))))
+         (prefix (and dot (subseq application-identifier 0 dot))))
+    (if (and pattern (or (string= pattern "*") (uiop:string-suffix-p pattern ".*")))
+        (format nil "~a.~a" (or team prefix) bundle-identifier)
+        application-identifier)))
+
 (defun profile-entitlements-form (spec)
   "Entitlements derived FROM the profile rather than guessed.
 
@@ -129,7 +154,11 @@ what lets a debugger attach, and a distribution build must not have it."
     (unless details
       (barf "A device build needs :PROVISIONING-PROFILE."))
     `(:dict
-      ("application-identifier" . ,(getf details :application-identifier))
+      ("application-identifier"
+       . ,(specialised-application-identifier
+           (getf details :application-identifier)
+           (spec-identifier spec)
+           (getf details :team)))
       ,@(when (getf details :team)
           `(("com.apple.developer.team-identifier" . ,(getf details :team))))
       ,@(when (spec-get-task-allow-p spec)
