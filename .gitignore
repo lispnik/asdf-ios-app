@@ -28,3 +28,6 @@ examples/*/build/
 # that a module is recognised under every spelling it has, so the spellings
 # have to survive a clone.
 !tests/fixture/modules/*
+
+# Finder
+.DS_Store

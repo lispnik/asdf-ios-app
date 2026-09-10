@@ -245,8 +245,9 @@ this example deliberately depends on nothing but objc-lite."
   (build-interface)
   (setf *stack* '())
   (show (packages-level))
-  (when (equal "1" (ext:getenv "BROWSER_DEMO"))
-    (demonstrate-selection))
+  (let ((demo (ext:getenv "BROWSER_DEMO")))
+    (cond ((equal demo "1") (demonstrate-selection))
+          ((equal demo "tour") (start-tour))))
   (values))
 
 ;;; ------------------------------------------------------------------
@@ -268,10 +269,103 @@ this example deliberately depends on nothing but objc-lite."
         (source (oc:send *table* "delegate")))
     (oc:send source "tableView:didSelectRowAtIndexPath:" *table* path)))
 
+(defun scroll-to-row (index &key (position 1))
+  "Scroll INDEX into view. POSITION 1 is UITableViewScrollPositionTop.
+
+-scrollToRowAtIndexPath:atScrollPosition:animated: is NSIndexPath, NSInteger,
+BOOL -- every argument a pointer or a scalar, so the animated scroll is
+reachable from Lisp with no C anywhere."
+  (let ((rows (length (level-rows (current-level)))))
+    (when (< -1 index rows)
+      (oc:send *table* "scrollToRowAtIndexPath:atScrollPosition:animated:"
+               (oc:send (oc:cls "NSIndexPath") "indexPathForRow:inSection:" index 0)
+               position 1))))
+
+(defun highlight-row (index)
+  "Select INDEX the way a finger would, so the row flashes before it acts."
+  (let ((rows (length (level-rows (current-level)))))
+    (when (< -1 index rows)
+      (oc:send *table* "selectRowAtIndexPath:animated:scrollPosition:"
+               (oc:send (oc:cls "NSIndexPath") "indexPathForRow:inSection:" index 0)
+               1 0))))
+
 (defun demonstrate-selection ()
+  "The original two-step check: drill into COMMON-LISP, then into DEFSTRUCT."
   (let ((package-row (row-index "COMMON-LISP")))
     (when package-row
       (tap-row package-row)
       (let ((symbol-row (row-index "DEFSTRUCT")))
         (when symbol-row
           (tap-row symbol-row))))))
+
+;;; ------------------------------------------------------------------
+;;; a tour, for recording
+;;;
+;;; The same dispatch as above, spread over time so a person -- or a screen
+;;; recorder -- can follow it. Steps are ordinary closures run by a repeating
+;;; NSTimer through LispTarget; NIL is a beat, which is how a pause is spelled.
+
+(defvar *tour* '())
+(defvar *tour-timer* nil)
+
+(defun enter (title)
+  "Scroll TITLE into view, select it, and follow it -- as three steps."
+  (let ((index nil))
+    (list (lambda () (setf index (row-index title))
+            (when index (scroll-to-row (max 0 (- index 2)))))
+          (lambda () (when index (highlight-row index)))
+          (lambda () (when index (tap-row index))))))
+
+(defun tour-steps ()
+  (append
+   (list nil nil)
+   ;; Down the package list and into COMMON-LISP.
+   (list (lambda () (scroll-to-row 12)) nil
+         (lambda () (scroll-to-row 4)) nil)
+   (enter "COMMON-LISP")
+   (list nil)
+   ;; A macro, with its lambda list and docstring.
+   (enter "DEFSTRUCT")
+   (list nil nil (lambda () (scroll-to-row 6)) nil nil nil
+         (lambda () (go-back)) nil)
+   ;; A function, to show the kind line changing.
+   (enter "MAPCAR")
+   (list nil nil nil (lambda () (go-back)) nil
+         (lambda () (go-back)) nil)
+   ;; The app's own package: the image is browsing the code that built it.
+   (enter "OBJC-LITE")
+   (list nil)
+   (enter "SEND")
+   (list nil nil nil
+         (lambda () (go-back)) nil
+         (lambda () (go-back)) nil nil)))
+
+(defun stop-tour ()
+  (when *tour-timer*
+    (oc:send *tour-timer* "invalidate")
+    (setf *tour-timer* nil))
+  (values))
+
+(defun tour-tick ()
+  ;; Emptiness is checked BEFORE popping. Checking after drops the last step,
+  ;; which in a tour is the one that puts the app back where it started.
+  (if (null *tour*)
+      (stop-tour)
+      (let ((step (pop *tour*)))
+        ;; A step must not signal: the caller is a UIKit timer.
+        (when step (ignore-errors (funcall step)))))
+  (values))
+
+(defun start-tour ()
+  (setf *tour* (tour-steps))
+  (setf *tour-timer*
+        (oc:retain
+         (oc:send (oc:cls "NSTimer")
+                  "scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"
+                  0.9d0
+                  (oc:retain (oc:send (oc:cls "LispTarget") "targetWithForm:"
+                                      (oc:nsstr "(browser::tour-tick)")))
+                  (oc:sel "fire:")
+                  nil
+                  1)))
+  (values))
