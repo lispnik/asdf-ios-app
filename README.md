@@ -190,8 +190,7 @@ build says so when the shape arises; it cannot decide it for you.
 
 `ffi:c-inline` is normally useless on iOS because it needs a C compiler. Cross
 compiling means there *is* one, at build time — and then the C compiler
-implements the ABI, so the two things ECL's dynamic FFI cannot express at all
-come free:
+implements the ABI, so the things ECL's dynamic FFI cannot express come free:
 
 ```lisp
 ;; NSRange, returned BY VALUE
@@ -207,7 +206,47 @@ and then for iOS — and `c-inline` survives neither half: it cannot be
 interpreted, and compiling it natively makes ECL build and *link* a host fasl,
 which fails the moment the C mentions CoreGraphics or `objc_msgSend`.
 
-Three things to know when writing one:
+### Why a trampoline, and not just more `si:call-cfun`
+
+ECL's foreign type table (`src/c/ffi.d`, `ecl_foreign_type_table`) is a closed
+enum of scalars ending at `ECL_FFI_VOID`. There is no struct, union or array
+member and no way to add one, so `si:call-cfun` has no way to *say* `CGRect`.
+
+The tempting workaround is to decompose the struct into the scalars it is made
+of. `examples/abi-probe/` measures when that is right, against ground truth
+produced by the C compiler in the same binary calling the same functions. On
+arm64:
+
+| | as an argument | as a return value |
+|---|---|---|
+| `NSRange` — 2 ints, 16 bytes | works (`x0`, `x1`) | **only the first field** |
+| `CGRect` — 4 doubles, an HFA | works (`v0`–`v3`) | **only `origin.x`** |
+| `long` + `double`, 16 bytes | **wrong** — both halves go in general registers, so the `double` is expected in `x1` | **only the first field** |
+| `CGAffineTransform` — 6 doubles | **wrong**: not an HFA and over 16 bytes, so it is passed *by pointer* | **wrong** |
+
+So decomposition works exactly when AAPCS64 happens to put the fields where
+that many separate scalars would have gone, and never on the way back — which
+is the direction that matters, because `-bounds` and `-frame` are how you ask a
+view anything.
+
+**None of the failures is a Lisp error.** They are wrong numbers. The two
+indirect cases are worse than wrong: the callee reads 48 bytes through a
+register the caller never set, and for the return value *writes* 48 bytes
+through one. Neither faulted when measured, which is luck rather than safety —
+and the value read back changed between launches of the same binary
+(`-48200.0d0`, then `2.32e-318`). There is no handler to write and nothing to
+test for at run time.
+
+```
+$ xcrun simctl launch <device> org.asdf-ios-app.abi-probe
+$ SIMCTL_CHILD_ABI_PROBE_CASE=take_hfa6 xcrun simctl launch <device> org.asdf-ios-app.abi-probe
+```
+
+The report is written to the app's `Documents/abi-report.txt` and shown on
+screen. Each indirect case gets its own launch, and every line is flushed, so a
+process that does fault still leaves its evidence.
+
+### Three things to know when writing one
 
 - **The C must be plain C, not Objective-C.** A trampoline is a cast of
   `objc_msgSend` to one concrete prototype, which is C anyway.
