@@ -34,6 +34,33 @@ you can write. There are more below.
 
 ## The examples
 
+<table>
+<tr>
+  <th align="center">hello</th>
+  <th align="center">repl</th>
+  <th align="center">browser</th>
+</tr>
+<tr>
+  <td><img src="doc/screenshots/hello.png" width="210" alt="A centred label reading ECL 26.5.5 on arm64, then the result of an expression evaluated at run time, then a line loaded from interpreted source."></td>
+  <td><img src="doc/screenshots/repl.png" width="210" alt="A transcript of evaluated forms above a row of buttons and a text field."></td>
+  <td><img src="doc/screenshots/browser.png" width="210" alt="A table view listing Lisp packages with their symbol counts and nicknames."></td>
+</tr>
+<tr>
+  <th align="center">chart</th>
+  <th align="center">attractor</th>
+  <th align="center">abi-probe</th>
+</tr>
+<tr>
+  <td><img src="doc/screenshots/chart.png" width="210" alt="A sine curve drawn as SVG in a web view, with a table of details below it."></td>
+  <td><img src="doc/screenshots/attractor.png" width="210" alt="A de Jong strange attractor in pale blue on black, filling the screen."></td>
+  <td><img src="doc/screenshots/abi-probe.png" width="210" alt="A dense monospaced report comparing si:call-cfun against the C compiler."></td>
+</tr>
+</table>
+
+Every one of these is a screenshot of the simulator, from a clean install of a
+build made by `asdf:make` — there is no Xcode project anywhere in the
+repository.
+
 | | what it is | what it shows |
 |---|---|---|
 | `hello` | a label | the least that builds |
