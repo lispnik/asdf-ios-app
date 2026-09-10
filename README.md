@@ -59,12 +59,13 @@ you can write. There are more below.
 
 Every one of these is a screenshot of the simulator, from a clean install of a
 build made by `asdf:make` — there is no Xcode project anywhere in the
-repository.
+repository. `objc-lite`, the seventh, is a library rather than an app, and has
+nothing to photograph; three of the six above are built on it.
 
 | | what it is | what it shows |
 |---|---|---|
 | `hello` | a label | the least that builds |
-| `objc-lite` | a library, not an app | the smallest Objective-C bridge that is useful — messages, runtime classes, constraints, all through `si:call-cfun` |
+| `objc-lite` | a library, not an app | the Objective-C bridge the three above are built on — see below |
 | `repl` | a REPL with a keyboard | a `UITextFieldDelegate` written in Lisp, and `keyboardLayoutGuide` instead of a `CGRect` |
 | `browser` | the running image, as a table | a `UITableViewDataSource` written in Lisp — packages, symbols, and what a symbol is |
 | `chart` | SVG in a `WKWebView` | a framework beyond UIKit, a bundled resource, and state that survives a relaunch |
@@ -85,6 +86,39 @@ class whose methods are Lisp costs nothing extra — *as long as every argument
 and the return value is a scalar or a pointer*. `UITableViewDataSource` is
 `NSInteger` and `id` throughout. `drawRect:` is not, which is why the attractor
 is the one example that needs a trampoline file.
+
+### `objc-lite`
+
+Two files and about 250 lines, shared by `repl`, `browser` and `chart`. Without
+it each of them would open with the same forty lines of `si:call-cfun`
+boilerplate.
+
+```lisp
+(oc:send label "setText:" (oc:nsstr "hello"))
+(oc:pin label "centerXAnchor" view "centerXAnchor")
+(oc:define-class "LispTableSource" "NSObject"
+  (list (list "tableView:numberOfRowsInSection:" (ffi:callback 'rows) "q@:@q")))
+```
+
+Underneath it is `objc_msgSend`, `sel_registerName`, `objc_getClass`,
+`objc_allocateClassPair` and `class_addMethod`, reached through the dynamic FFI,
+with memoised classes and selectors, argument types inferred from the values,
+and `oc:retain` for the objects UIKit holds only weakly — a delegate, a data
+source, a target.
+
+Two things follow from having no C in it. It works **compiled and interpreted
+alike**, so an interface can be built a form at a time at a remote REPL. And it
+inherits exactly one limitation, the one `abi-probe` measures: **no message it
+sends may take or return a struct by value.** `-bounds`, `-frame` and
+`-setFrame:` are unreachable. In practice that costs less than it sounds,
+because an anchor is an object and a constraint's constant is a `CGFloat` — a
+whole interface can be built without ever naming a rectangle, which is what
+those three examples do.
+
+It is deliberately **not** part of `asdf-ios-app`. The real interface is the
+`objc` library; this is what you would write in an afternoon rather than take a
+dependency. `hello` does not use it either, open-coding the six lines it needs
+so that the minimal example stays minimal.
 
 A few things learned writing them, since each cost more than it should have:
 
