@@ -419,6 +419,31 @@ outgrow."
       ,@(mapcar (lambda (d) (list :directory (uiop:native-namestring d))) dirs)
       :inherit-configuration)))
 
+(defmacro with-readable-printer (&body body)
+  "Bind the printer so PRIN1 emits source that can be read back.
+
+Every printer control here has a default that is fine and a value some user has
+set in their init file that is not. *PRINT-LEVEL* is the one that bites: at
+level 4 a nested form in the generated bootstrap prints as
+
+    (PRIN1 (LIST :ERROR #) S)
+
+and the child dies with `The character ) is not a valid dispatch macro
+character' -- pointing at generated code, not at the setting that ruined it.
+*PRINT-LENGTH* truncates lists the same way, *PRINT-CIRCLE* would introduce #N#
+labels, and *PRINT-READABLY* turns anything unprintable into an error here
+rather than a puzzle later.
+
+Anything this system writes and later reads back -- the child bootstrap, the
+request and status files, the products list -- has to go through this."
+  `(let ((*print-level* nil)
+         (*print-length* nil)
+         (*print-circle* nil)
+         (*print-readably* t)
+         (*print-pretty* nil)
+         (*read-default-float-format* 'double-float))
+     ,@body))
+
 (defun child-bootstrap-forms (system status-file request-file registry)
   "The forms the child loads.
 
@@ -435,6 +460,7 @@ extension is loaded there."
   (let ((e (cl-user-symbol "E"))
         (s (cl-user-symbol "S"))
         (hook (cl-user-symbol "HOOK"))
+        (text (cl-user-symbol "TEXT"))
         (enter (cl-user-symbol "ENTER-PHASE"))
         (report (cl-user-symbol "REPORT-FAILURE"))
         (asd (asdf:system-source-file system))
@@ -445,9 +471,24 @@ extension is loaded there."
                             :direction :output :if-exists :supersede)
           (prin1 (list :phase ,s) ,e)))
       (defun ,report (,e)
-        (with-open-file (,s ,(uiop:native-namestring status-file)
-                            :direction :output :if-exists :supersede)
-          (prin1 (list :error (princ-to-string ,e)) ,s)))
+        ;; Printing the condition is bounded and guarded, because a condition
+        ;; that will not print is a real thing and it hangs rather than fails:
+        ;; an UNBOUND-SLOT whose instance prints recursively puts ECL into an
+        ;; unbounded PRINT-UNREADABLE-OBJECT recursion, and the build then
+        ;; looks like a very slow compile rather than a dead one.
+        (let ((*print-level* 4)
+              (*print-length* 20)
+              (*print-circle* t)
+              (*print-readably* nil))
+          (with-open-file (,s ,(uiop:native-namestring status-file)
+                              :direction :output :if-exists :supersede)
+            (prin1 (list :error
+                         (or (ignore-errors
+                              (let ((,text (princ-to-string ,e)))
+                                (subseq ,text 0 (min 2000 (length ,text)))))
+                             (format nil "a ~a that will not print"
+                                     (type-of ,e))))
+                   ,s))))
       ;; ECL has no --disable-debugger, so an unhandled error would sit at a
       ;; broken REPL forever rather than failing the build.
       (setf ext:*invoke-debugger-hook*
@@ -547,18 +588,20 @@ request naming the library and init symbol built for each platform."
     ;; the prefixes, so it simply says which.
     (let ((tc (toolchain)))
       (with-open-file (out request :direction :output :if-exists :supersede)
-        (prin1 (list :cache (uiop:native-namestring work)
-                     :platforms platforms
-                     :device-prefix (getf tc :device)
-                     :simulator-prefix (getf tc :simulator)
-                     :host (getf tc :host))
-               out)))
+        (with-readable-printer
+          (prin1 (list :cache (uiop:native-namestring work)
+                       :platforms platforms
+                       :device-prefix (getf tc :device)
+                       :simulator-prefix (getf tc :simulator)
+                       :host (getf tc :host))
+                 out))))
     (with-open-file (out boot :direction :output :if-exists :supersede)
       (let ((*package* (find-package :cl-user)))
-        (dolist (form (child-bootstrap-forms system status request
-                                             (child-source-registry-form system)))
-          (prin1 form out)
-          (terpri out))))
+        (with-readable-printer
+          (dolist (form (child-bootstrap-forms system status request
+                                               (child-source-registry-form system)))
+            (prin1 form out)
+            (terpri out)))))
     (note "cross-compiling ~a for ~{~a~^, ~}"
           (asdf:component-name system)
           (mapcar (lambda (k) (platform-name (find-platform k))) platforms))

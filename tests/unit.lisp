@@ -556,3 +556,40 @@ for -- which is exactly the sort of test that passes while proving nothing."
     (let ((failure (ios-app-runtime:boot-failure)))
       (is (search "deliberate failure" failure))
       (is (search "SIMPLE-ERROR" failure)))))
+
+;;; ------------------------------------------------------------------
+;;; generated code has to survive the user's printer settings
+;;;
+;;; The child bootstrap is written with PRIN1 and read back by another Lisp. A
+;;; *PRINT-LEVEL* in someone's init file silently turns a nested form into `#',
+;;; and the child then dies on generated code with no hint as to why.
+
+(deftest the-child-bootstrap-survives-a-hostile-printer
+  (let ((system (asdf:find-system "hello-ios" nil)))
+    (if (null system)
+        (skip "hello-ios is not in the registry")
+        (let ((forms (app::child-bootstrap-forms
+                      system #p"/tmp/status.sexp" #p"/tmp/request.sexp"
+                      '(:source-registry :inherit-configuration))))
+          ;; Exactly the settings that broke it: level 4, length 3.
+          (let* ((*print-level* 4)
+                 (*print-length* 3)
+                 (text (app::with-readable-printer
+                         (with-output-to-string (out)
+                           (dolist (form forms)
+                             (prin1 form out)
+                             (terpri out))))))
+            (is (not (search "#)" text)))
+            (is (not (search "..." text)))
+            ;; And it must read back as the same number of forms.
+            (is= (length forms)
+                 (with-input-from-string (in text)
+                   (loop for form = (read in nil :eof)
+                         until (eq form :eof)
+                         count t))))))))
+
+(deftest the-readable-printer-neutralises-every-control
+  (let ((*print-level* 1) (*print-length* 1) (*print-pretty* t))
+    (is= "(1 (2 (3 (4 5))))"
+         (app::with-readable-printer
+           (prin1-to-string '(1 (2 (3 (4 5)))))))))
