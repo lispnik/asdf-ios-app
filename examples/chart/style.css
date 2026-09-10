@@ -1,0 +1,32 @@
+/* Shipped in the bundle and read at run time, to show that resources work.
+   Editing this file and rebuilding changes the app without touching Lisp. */
+
+:root { color-scheme: light dark; }
+
+body {
+  margin: 0;
+  padding: 18px 16px 24px;
+  font: 16px/1.5 -apple-system, system-ui, sans-serif;
+  background: Canvas;
+  color: CanvasText;
+}
+
+h1 { margin: 0 0 2px; font-size: 22px; letter-spacing: -0.01em; }
+
+p.note { margin: 0 0 14px; opacity: 0.6; font-size: 14px; }
+
+figure {
+  margin: 0;
+  border-radius: 14px;
+  background: color-mix(in srgb, CanvasText 6%, Canvas);
+  padding: 10px;
+}
+
+svg { display: block; width: 100%; height: auto; }
+
+.axis { stroke: color-mix(in srgb, CanvasText 25%, transparent); stroke-width: 1; }
+.curve { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 16px 0 0; }
+dt { opacity: 0.55; }
+dd { margin: 0; font-variant-numeric: tabular-nums; }

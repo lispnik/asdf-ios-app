@@ -30,7 +30,49 @@ installs the bytecodes compiler.
 
 `examples/attractor/` is a `UIView` whose `drawRect:` is a Lisp function,
 drawing 300,000 points of a de Jong attractor. `examples/hello/` is the least
-you can write.
+you can write. There are more below.
+
+## The examples
+
+| | what it is | what it shows |
+|---|---|---|
+| `hello` | a label | the least that builds |
+| `objc-lite` | a library, not an app | the smallest Objective-C bridge that is useful — messages, runtime classes, constraints, all through `si:call-cfun` |
+| `repl` | a REPL with a keyboard | a `UITextFieldDelegate` written in Lisp, and `keyboardLayoutGuide` instead of a `CGRect` |
+| `browser` | the running image, as a table | a `UITableViewDataSource` written in Lisp — packages, symbols, and what a symbol is |
+| `chart` | SVG in a `WKWebView` | a framework beyond UIKit, a bundled resource, and state that survives a relaunch |
+| `attractor` | a strange attractor you can drag | `drawRect:` in Lisp, gestures, trampolines, and redefining the mathematics over SLY |
+| `abi-probe` | a report, not an interface | exactly which structs `si:call-cfun` can carry, measured |
+
+Build any of them with `asdf:make`, with `examples/` on your source registry:
+
+```lisp
+(asdf:make "browser")
+(ios-app:run-in-simulator "browser")
+```
+
+**Three of them need no C compiler at build time and no `:bundle-trampolines`.**
+That surprises people, and it is worth saying why: the ECL compiler handles
+`ffi:defcallback` itself and emits an ordinary C function, so an Objective-C
+class whose methods are Lisp costs nothing extra — *as long as every argument
+and the return value is a scalar or a pointer*. `UITableViewDataSource` is
+`NSInteger` and `id` throughout. `drawRect:` is not, which is why the attractor
+is the one example that needs a trampoline file.
+
+A few things learned writing them, since each cost more than it should have:
+
+- **A `BOOL` callback returns `:byte`, not `:char`.** Same width, different
+  thing: ECL's `:char` is a Lisp `character`, so returning `0` fails inside
+  `char-code`.
+- **`-[UIButton init]` gives the *custom* type**, whose title colour is white.
+  On a white background that is indistinguishable from a button that failed to
+  appear. `oc:system-button` exists for this reason.
+- **`init` often avoids a struct.** `-[UITableView initWithFrame:style:]` and
+  `-[WKWebView initWithFrame:configuration:]` both want a `CGRect`; plain
+  `-init` does not, and gives the same defaults.
+- **An entry point that signals now shows the condition on screen.** There is no
+  terminal behind an app, and a blank white window is the least useful thing a
+  toolkit can hand you.
 
 ## Getting a toolchain
 

@@ -3,7 +3,7 @@
   (:nicknames #:oc)
   (:export
    ;; naming
-   #:cls #:sel #:class-name-of
+   #:cls #:sel #:class-name-of #:*null*
    ;; sending
    #:send #:send-long #:send-double #:send-string #:send-bool
    ;; strings

@@ -1,0 +1,221 @@
+;;;; chart.lisp -- Lisp writes the document; WebKit renders it.
+;;;;
+;;;; Three things none of the other examples do:
+;;;;
+;;;;   a framework beyond UIKit   WebKit, added by naming it in :BUNDLE-FRAMEWORKS
+;;;;   a bundled resource         style.css, shipped and read back at run time
+;;;;   the writable sandbox       the chosen curve is remembered across launches
+;;;;
+;;;; And an idea worth stealing: generating a document is something Lisp is
+;;;; unusually good at, and a WKWebView will render whatever you generate. That
+;;;; is a whole class of interface -- reports, tables, receipts, anything with
+;;;; structure -- reachable without touching Auto Layout at all.
+
+(defpackage #:chart
+  (:use #:cl)
+  (:local-nicknames (#:oc #:objc-lite))
+  (:export #:start #:choose))
+
+(in-package #:chart)
+
+(defvar *web-view* nil)
+(defvar *buttons* '())
+(defvar *stylesheet* ""
+  "style.css, read once out of the bundle.")
+
+;;; ------------------------------------------------------------------
+;;; the curves
+;;;
+;;; Each is a parametric function of T in [0,1] returning X and Y in [-1,1].
+;;; Ordinary Lisp, and the only part of this file worth editing for fun.
+
+(defparameter +curves+
+  (list
+   (list "sine" "y = sin 6&#960;t"
+         (lambda (parameter)
+           (values (- (* 2 parameter) 1)
+                   (sin (* 6 pi parameter)))))
+   (list "lissajous" "x = sin 6&#960;t, y = sin 8&#960;t + &#960;/4"
+         (lambda (parameter)
+           (values (sin (* 6 pi parameter))
+                   (sin (+ (* 8 pi parameter) (/ pi 4))))))
+   (list "spiral" "r = 1 - t, &#952; = 12&#960;t"
+         (lambda (parameter)
+           (let ((radius (- 1 parameter))
+                 (angle (* 12 pi parameter)))
+             (values (* radius (cos angle))
+                     (* radius (sin angle))))))))
+
+(defvar *choice* 0)
+
+(defun curve (&optional (index *choice*))
+  (nth (mod index (length +curves+)) +curves+))
+
+;;; ------------------------------------------------------------------
+;;; remembering the choice
+;;;
+;;; HOME is the app's Documents directory -- ECLBoot points it there, because
+;;; the bundle itself is read-only and a Lisp that cannot write anywhere is a
+;;; frustrating thing.
+
+(defun state-file ()
+  (merge-pathnames "chart.sexp" (user-homedir-pathname)))
+
+(defun save-choice ()
+  (ignore-errors
+   (with-open-file (out (state-file) :direction :output
+                                     :if-exists :supersede
+                                     :if-does-not-exist :create)
+     (prin1 (list :choice *choice*) out))))
+
+(defun load-choice ()
+  (setf *choice*
+        (or (ignore-errors
+             (with-open-file (in (state-file) :if-does-not-exist nil)
+               (when in
+                 (let ((*read-eval* nil))
+                   (getf (read in) :choice)))))
+            0)))
+
+;;; ------------------------------------------------------------------
+;;; the document
+
+(defparameter +samples+ 1400)
+(defparameter +width+ 1000)
+(defparameter +height+ 620)
+
+(defun plot-points (function)
+  "FUNCTION sampled into SVG user units."
+  (let ((half-width (/ +width+ 2))
+        (half-height (/ +height+ 2)))
+    (loop for i from 0 to +samples+
+          for parameter = (/ i (float +samples+ 1d0))
+          collect (multiple-value-bind (x y) (funcall function parameter)
+                    (cons (+ half-width (* x (- half-width 30)))
+                          ;; SVG's Y grows downwards, which is the one
+                          ;; conversion worth doing in one place.
+                          (- half-height (* y (- half-height 30))))))))
+
+(defun svg (function)
+  (with-output-to-string (out)
+    ;; Both midpoints named and passed twice, rather than reached for with
+    ;; ~:*. The clever version drew one axis correctly and the other as a
+    ;; diagonal, because backing up one argument lands somewhere different
+    ;; depending on how many the directive before it consumed.
+    (let ((mid-x (/ +width+ 2))
+          (mid-y (/ +height+ 2)))
+      (format out "<svg viewBox=\"0 0 ~d ~d\" role=\"img\">" +width+ +height+)
+      (format out "<line class=\"axis\" x1=\"0\" y1=\"~d\" x2=\"~d\" y2=\"~d\"/>"
+              mid-y +width+ mid-y)
+      (format out "<line class=\"axis\" x1=\"~d\" y1=\"0\" x2=\"~d\" y2=\"~d\"/>"
+              mid-x mid-x +height+))
+    (format out "<polyline class=\"curve\" stroke=\"#38bdf8\" stroke-width=\"2.5\" points=\"")
+    (loop for (x . y) in (plot-points function)
+          do (format out "~,1f,~,1f " x y))
+    (format out "\"/></svg>")))
+
+(defun document ()
+  (destructuring-bind (name formula function) (curve)
+    (format nil
+            "<!doctype html><html><head><meta charset=\"utf-8\">~
+             <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">~
+             <style>~a</style></head><body>~
+             <h1>~a</h1><p class=\"note\">~a</p>~
+             <figure>~a</figure>~
+             <dl><dt>samples</dt><dd>~d</dd>~
+             <dt>generated by</dt><dd>~a ~a</dd>~
+             <dt>stylesheet</dt><dd>~:[missing~;style.css, from the bundle~]</dd></dl>~
+             </body></html>"
+            *stylesheet* name formula (svg function) +samples+
+            (lisp-implementation-type) (lisp-implementation-version)
+            (plusp (length *stylesheet*)))))
+
+(defun render ()
+  (oc:send *web-view* "loadHTMLString:baseURL:" (oc:nsstr (document)) nil))
+
+(defun choose (index)
+  "Called from a button. Shows the curve and remembers it for next launch."
+  (setf *choice* index)
+  (save-choice)
+  (render)
+  (values))
+
+;;; ------------------------------------------------------------------
+;;; the interface
+;;;
+;;; Four views and eight constraints. Everything else on screen is HTML.
+
+(defun read-stylesheet ()
+  (let ((path (ios-app-runtime:bundle-resource "style.css")))
+    (setf *stylesheet*
+          (or (ignore-errors
+               (with-open-file (in path :if-does-not-exist nil)
+                 (when in
+                   (let ((text (make-string (file-length in))))
+                     (subseq text 0 (read-sequence text in))))))
+              ""))))
+
+(defun build-interface ()
+  (let* ((root (oc:root-view))
+         (safe (oc:send root "safeAreaLayoutGuide"))
+         (row (oc:new "UIStackView"))
+         (web (oc:new "WKWebView")))
+
+    (oc:send root "setBackgroundColor:" (oc:system-color "systemBackground"))
+
+    (oc:send row "setSpacing:" 8d0)
+    (oc:send row "setDistribution:" 1)         ; FillEqually
+    (setf *buttons*
+          (loop for (name nil nil) in +curves+
+                for index from 0
+                collect (let ((button (oc:on-tap (oc:system-button name)
+                                                 (format nil "(chart:choose ~d)" index))))
+                          (oc:send row "addArrangedSubview:" button)
+                          button)))
+    (oc:send root "addSubview:" row)
+
+    ;; -[WKWebView init] rather than -initWithFrame:configuration:, which would
+    ;; have wanted a CGRect. The default configuration is what we want anyway.
+    (oc:send web "setOpaque:" 0)
+    (oc:send root "addSubview:" web)
+
+    (oc:pin row "topAnchor" safe "topAnchor" 6)
+    (oc:pin row "leadingAnchor" safe "leadingAnchor" 12)
+    (oc:pin row "trailingAnchor" safe "trailingAnchor" -12)
+    (oc:fix row "heightAnchor" 34)
+
+    (oc:pin web "topAnchor" row "bottomAnchor" 6)
+    (oc:pin web "leadingAnchor" safe "leadingAnchor")
+    (oc:pin web "trailingAnchor" safe "trailingAnchor")
+    (oc:pin web "bottomAnchor" safe "bottomAnchor")
+
+    (setf *web-view* web)
+    (values)))
+
+(defun start ()
+  (read-stylesheet)
+  (load-choice)
+  (build-interface)
+  (render)
+  (let ((demo (ext:getenv "CHART_DEMO")))
+    (when demo
+      (tap-button (parse-integer demo :junk-allowed t))))
+  (values))
+
+;;; ------------------------------------------------------------------
+;;; pressing a button without a finger
+;;;
+;;; simctl cannot inject a touch, so this walks the same path UIKit does: ask
+;;; the button for its target, and send it the action selector. What it
+;;; reaches is LispTarget -- which asdf-ios-app ships, and which evaluates the
+;;; form the button was created with.
+;;;
+;;; Gated on an environment variable, so it is a way of testing the app rather
+;;; than part of it:
+;;;   SIMCTL_CHILD_CHART_DEMO=2 xcrun simctl launch <device> org.asdf-ios-app.chart
+
+(defun tap-button (index)
+  (let ((button (nth (or index 0) *buttons*)))
+    (when button
+      (let ((target (oc:send (oc:send button "allTargets") "anyObject")))
+        (oc:send target "fire:" button)))))

@@ -61,15 +61,21 @@ puts it in the right register with the wrong bits."
     (float   :double)
     (t       :pointer-void)))
 
+(defvar *null* (ffi:make-null-pointer :pointer-void)
+  "nil, as Objective-C spells it. Handy for the many methods whose last
+argument is an optional object -- -loadHTMLString:baseURL: among them.")
+
+(defun coerce-argument (value)
+  (cond ((null value) *null*)
+        ((floatp value) (float value 1d0))
+        (t value)))
+
 (defun %send (object selector arguments return-type)
-  (si:call-cfun *msg-send* return-type
-                (list* :pointer-void :pointer-void
-                       (mapcar #'argument-type arguments))
-                (list* object (sel selector)
-                       (mapcar (lambda (a) (if (floatp a)
-                                               (float a 1d0)
-                                               a))
-                               arguments))))
+  (let ((arguments (mapcar #'coerce-argument arguments)))
+    (si:call-cfun *msg-send* return-type
+                  (list* :pointer-void :pointer-void
+                         (mapcar #'argument-type arguments))
+                  (list* object (sel selector) arguments))))
 
 (defun send (object selector &rest arguments)
   "Send SELECTOR to OBJECT and return the result as a pointer."
