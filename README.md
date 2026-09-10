@@ -536,6 +536,13 @@ because booting one is thirty seconds and varies by machine.
 - **Device builds are unverified end to end.** The argument construction, the
   profile parsing and the refusals are tested; nothing beyond that has been run
   on a phone.
+- **`:remote-repl` prevents the entry point running on a device.** Measured on an
+  iPhone 16e: with `:remote-repl t` the app produces no output at all and the
+  slynk port accepts a connection but never answers, because `%boot` starts the
+  server before calling `:entry-point` and on a device that never returns. The
+  same build runs correctly on the simulator, which is what made it hard to
+  see. Drop `:remote-repl` for a device build until this is understood; the
+  simulator is unaffected.
 - **The remote REPL is unauthenticated.** Anyone who can reach the port gets
   `eval`. It binds loopback, which on a device means nothing can reach it
   without `iproxy`; do not widen `:interface` outside a network you own, and do
