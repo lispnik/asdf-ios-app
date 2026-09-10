@@ -529,3 +529,30 @@ for -- which is exactly the sort of test that passes while proving nothing."
   ;; device builds alone -- and computing them shells out, which a simulator
   ;; build should not have to do.
   (is= nil (app::build-provenance-plist-for :simulator)))
+
+;;; ------------------------------------------------------------------
+;;; a boot that fails should say so on screen
+;;;
+;;; There is no terminal behind an app. An entry point that signals used to
+;;; leave a blank window and a message on a console nobody was reading, and the
+;;; only way to find out what happened was to rebuild with print statements in
+;;; it -- the most expensive minute in the loop.
+
+(deftest a-clean-boot-reports-no-failure
+  (let ((ios-app-runtime::*boot-failure* nil))
+    (is= "" (ios-app-runtime:boot-failure))))
+
+(deftest an-entry-point-that-signals-is-recorded
+  (let ((ios-app-runtime::*boot-failure* nil))
+    (ios-app-runtime::%boot :entry-point "cl-user::a-function-that-signals"
+                            :guard-callbacks nil)
+    ;; Not fbound, which is its own message and must still be reported.
+    (is (search "not fbound" (ios-app-runtime:boot-failure))))
+  (let ((ios-app-runtime::*boot-failure* nil))
+    (setf (symbol-function 'cl-user::deliberately-broken)
+          (lambda () (error "a deliberate failure")))
+    (ios-app-runtime::%boot :entry-point "cl-user::deliberately-broken"
+                            :guard-callbacks nil)
+    (let ((failure (ios-app-runtime:boot-failure)))
+      (is (search "deliberate failure" failure))
+      (is (search "SIMPLE-ERROR" failure)))))

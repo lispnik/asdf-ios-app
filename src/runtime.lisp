@@ -23,7 +23,8 @@
            #:on-main
            #:with-main-thread
            #:start-remote-repl
-           #:*remote-repl-port*))
+           #:*remote-repl-port*
+           #:boot-failure))
 
 (in-package #:ios-app-runtime)
 
@@ -193,6 +194,24 @@ that into a condition costs a redefinition of an internal and is worth it."
                       Compile this system ahead of time instead of listing it ~
                       in :BUNDLE-INTERPRETED."))))))
 
+(defvar *boot-failure* nil
+  "What the entry point signalled, as text, or NIL.
+
+Kept so the delegate can put it on screen. An app whose entry point dies shows
+a blank window and writes to a console nobody is reading -- on a phone there is
+no terminal behind the app -- and the first thing you need is the condition,
+not a rebuild with print statements in it.")
+
+(defun boot-failure ()
+  "The entry point's failure as a string, or \"\" if it succeeded."
+  (or *boot-failure* ""))
+
+(defun describe-boot-failure (entry-point condition)
+  (format nil "~a signalled~%~%~a: ~a~%~%~a"
+          entry-point (type-of condition) condition
+          "The image is up; the interface is not. Fix and rebuild, or attach a
+remote REPL with :REMOTE-REPL T and build it by hand."))
+
 (defun %boot (&key entry-point manifest remote-repl (guard-callbacks t))
   "Called from ECLBoot once the image is up. Returns; the run loop follows."
   (setf *bundle-path* (symbol-value (find-symbol "*BUNDLE-PATH*" "CL-USER")))
@@ -207,10 +226,16 @@ that into a condition costs a redefinition of an internal and is worth it."
       (setf *entry-point* symbol)
       (cond ((and symbol (fboundp symbol))
              (handler-case (funcall symbol)
-               (error (e)
+               (serious-condition (e)
+                 (setf *boot-failure* (describe-boot-failure entry-point e))
                  (format t "~&; entry point ~a signalled: ~a~%" entry-point e)
                  (finish-output))))
             (t
+             (setf *boot-failure*
+                   (format nil "~a is not fbound.~%~%The :ENTRY-POINT names a ~
+                                function that does not exist in the built ~
+                                image. Check the package and the spelling."
+                           entry-point))
              (format t "~&; entry point ~a is not fbound~%" entry-point)
              (finish-output)))))
   t)
