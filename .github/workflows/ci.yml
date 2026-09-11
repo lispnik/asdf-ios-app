@@ -20,13 +20,13 @@
 # What this does not cover, and it is the interesting half.  Ten tests build a
 # real bundle and skip without a cross-built ECL; one of those installs it on a
 # booted simulator and reads back what Lisp says. Between them they carry 22 of
-# the suite's 178 checks -- the compile, link, sign, package and launch path,
+# the suite's 177 checks -- the compile, link, sign, package and launch path,
 # which is to say most of what this system is for.
 #
 # Covering them needs (asdf-ios-app:bootstrap-ecl) to cross-build two ECL
 # prefixes, device and simulator. That is a twenty-minute job cold, cacheable by
 # ECL revision afterwards, and then `xcrun simctl boot` plus
-# ASDF_IOS_APP_SIMULATOR_TESTS=1. It is deferred rather than forgotten: the 156
+# ASDF_IOS_APP_SIMULATOR_TESTS=1. It is deferred rather than forgotten: the 155
 # checks below are worth protecting today, and a second job can be added to this
 # file without disturbing them.
 
@@ -55,23 +55,29 @@ jobs:
 
       - name: Report the environment the tests will see
         # Which tests skip is decided entirely by TOOLCHAIN-AVAILABLE-P, so this
-        # is what says why the count below is 156 and not 178.
+        # is what says why the count below is 155 and not 177.
         run: |
           ecl --norc \
             --eval '(require :asdf)' \
-            --eval '(asdf:initialize-source-registry (list :source-registry (list :directory (uiop:getcwd)) :inherit-configuration))' \
+            --eval '(asdf:initialize-source-registry (list :source-registry (list :directory (uiop:getcwd)) (list :tree (merge-pathnames "examples/" (uiop:getcwd))) :inherit-configuration))' \
             --eval '(asdf:load-system :asdf-ios-app)' \
             --eval '(format t "~&ECL ~a on ~a~%" (lisp-implementation-version) (machine-type))' \
             --eval '(asdf-ios-app:describe-toolchain)' \
             --eval '(ext:quit)'
 
       - name: Run tests
+        # examples/ is on the registry because three tests resolve the
+        # hello-ios system to check how a real application's components are
+        # declared. A bare :directory does not recurse, so without this they
+        # skip -- which is how the first run here reported 147 checks rather
+        # than 155.
+        #
         # ASDF discards what a TEST-OP returns, so the exit code has to come
         # from the perform method signalling -- which it does. A suite that
         # cannot fail the job is a suite that protects nothing.
         run: |
           ecl --norc \
             --eval '(require :asdf)' \
-            --eval '(asdf:initialize-source-registry (list :source-registry (list :directory (uiop:getcwd)) :inherit-configuration))' \
+            --eval '(asdf:initialize-source-registry (list :source-registry (list :directory (uiop:getcwd)) (list :tree (merge-pathnames "examples/" (uiop:getcwd))) :inherit-configuration))' \
             --eval '(asdf:test-system :asdf-ios-app)' \
             --eval '(ext:quit 0)'

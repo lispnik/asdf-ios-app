@@ -659,19 +659,37 @@ the build into an env(1) invocation on a machine that never needed it."
     (is= '("/usr/bin/clang" "-c" "x.m")
          (app::without-host-toolchain '("/usr/bin/clang" "-c" "x.m")))))
 
+(defparameter +scrub-test-variable+ "ASDF_IOS_APP_SCRUB_PROBE"
+  "A variable this suite sets itself.
+
+The first version of these tests keyed on LIBRARY_PATH, which made them a
+no-op wherever it happened not to be set -- CI, most obviously, which is the
+one place they most need to run. A test that quietly skips on the machine it
+was written to protect protects nothing.")
+
 (deftest a-set-variable-is-unset-for-the-child
-  "LIBRARY_PATH is an implicit -L that no command line mentions. A Homebrew
-profile sets it to a host GCC's library directory, and it then applies to an
-iOS link, where the objects are for another platform entirely."
-  (let ((argv (app::without-host-toolchain '("/usr/bin/clang" "-o" "app"))))
-    (if (not (uiop:getenvp "LIBRARY_PATH"))
-        (skip "LIBRARY_PATH is not set in this environment")
-        (progn
-          (is= "/usr/bin/env" (first argv))
-          (is (member "LIBRARY_PATH" argv :test #'string=))
-          (is= "-u" (nth (- (position "LIBRARY_PATH" argv :test #'string=) 1) argv))
-          ;; the command itself survives, in order, at the end
-          (is= '("/usr/bin/clang" "-o" "app") (last argv 3))))))
+  "The shape of the wrapped command: env, then -u for the variable, then the
+original argv unchanged and in order."
+  (ext:setenv +scrub-test-variable+ "host-junk")
+  (let ((app::+host-toolchain-environment+ (list +scrub-test-variable+)))
+    (is= (list "/usr/bin/env" "-u" +scrub-test-variable+
+               "/usr/bin/clang" "-o" "app")
+         (app::without-host-toolchain '("/usr/bin/clang" "-o" "app")))))
+
+(deftest the-child-really-does-not-see-it
+  "The one that matters, and the one that would have caught the original bug
+from the other direction: UIOP's :ENVIRONMENT is accepted and ignored on ECL,
+so a subprocess launched with it inherits the lot and nothing says so. Only
+running a child and asking it settles this."
+  (ext:setenv +scrub-test-variable+ "host-junk")
+  (let ((command (list "/bin/sh" "-c"
+                       (format nil "echo \"${~a-GONE}\"" +scrub-test-variable+))))
+    ;; inherited without the scrubbing ...
+    (let ((app::+host-toolchain-environment+ '()))
+      (is= "host-junk" (app::run command)))
+    ;; ... and absent with it
+    (let ((app::+host-toolchain-environment+ (list +scrub-test-variable+)))
+      (is= "GONE" (app::run command)))))
 
 (deftest the-variables-named-are-the-ones-that-aim-a-compiler
   "A list worth asserting: each entry is a silent -I or -L, and SDKROOT is a
