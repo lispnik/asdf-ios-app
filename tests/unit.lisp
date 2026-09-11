@@ -425,13 +425,19 @@ for -- which is exactly the sort of test that passes while proving nothing."
   "BODY with SYSTEM bound to a registered throwaway system depending on slynk.
 
 Registered, because DEPENDENCY-CLOSURE walks systems by name through
-ASDF:FIND-SYSTEM. slynk itself is stood in for when it is not on this
-machine's registry -- only its name matters here -- and both are cleared
-afterwards."
+ASDF:FIND-SYSTEM. slynk itself is stood in for unless one is already
+registered -- only its name matters here -- and both are cleared afterwards.
+The search functions are off for the duration: with ocicl's runtime loaded,
+merely asking FIND-SYSTEM about slynk downloads it into the current
+directory, and a unit test has no business on the network."
   (let ((fake (gensym "FAKE")))
-    `(let ((,fake (unless (asdf:find-system "slynk" nil)
-                    (asdf::register-system
-                     (make-instance 'asdf:system :name "slynk")))))
+    `(let* ((asdf:*system-definition-search-functions* '())
+            (,fake (unless (asdf::registered-system "slynk")
+                     ;; REGISTER-SYSTEM's value is its registry entry, not
+                     ;; the system, and CLEAR-SYSTEM wants the system.
+                     (let ((slynk (make-instance 'asdf:system :name "slynk")))
+                       (asdf::register-system slynk)
+                       slynk))))
        (unwind-protect
             (let ((,system (make-instance 'asdf::ios-app-system
                                           :name "slynk-user" ,@initargs)))
