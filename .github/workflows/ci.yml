@@ -1,0 +1,77 @@
+# asdf-ios-app, on macOS arm64.
+#
+# ECL and only ECL. This system drives ECL's own C backend -- src/compile.lisp
+# binds C::*CC*, C::*CC-FLAGS* and C::*ECL-INCLUDE-DIRECTORY* to point it at an
+# iOS SDK -- so there is no C package to bind under any other implementation and
+# SBCL cannot get as far as loading it. That is not a portability gap to close:
+# the whole point of the system is that ECL is the Lisp that runs on the phone.
+#
+# No ocicl step, because the system has no dependencies. It shells out to clang,
+# codesign, xcrun and plutil, all of which come with Xcode.
+#
+# A stock `brew install ecl` is enough *here*, which is worth saying because the
+# sibling objc repository builds a patched ECL and explains at length why it must.
+# Both are true. That patch (RTLD_DEFAULT for the :default module) is what lets
+# CFFI resolve symbols in a statically linked image -- a property of the app on
+# the phone, not of the machine building it. The builder never needs it, and
+# BOOTSTRAP-ECL applies it to the cross-built prefixes itself, from
+# tools/patches/.
+#
+# What this does not cover, and it is the interesting half.  Ten tests build a
+# real bundle and skip without a cross-built ECL; one of those installs it on a
+# booted simulator and reads back what Lisp says. Between them they carry 22 of
+# the suite's 178 checks -- the compile, link, sign, package and launch path,
+# which is to say most of what this system is for.
+#
+# Covering them needs (asdf-ios-app:bootstrap-ecl) to cross-build two ECL
+# prefixes, device and simulator. That is a twenty-minute job cold, cacheable by
+# ECL revision afterwards, and then `xcrun simctl boot` plus
+# ASDF_IOS_APP_SIMULATOR_TESTS=1. It is deferred rather than forgotten: the 156
+# checks below are worth protecting today, and a second job can be added to this
+# file without disturbing them.
+
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ecl · macos-latest (arm64)
+    runs-on: macos-latest
+    # The host-only suite is seconds; `brew install ecl` is the only part that
+    # takes real time. Loose enough never to fire on a slow runner, tight enough
+    # that a hung test is diagnosable rather than a runner that went quiet.
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install ECL
+        run: brew install ecl
+
+      - name: Report the environment the tests will see
+        # Which tests skip is decided entirely by TOOLCHAIN-AVAILABLE-P, so this
+        # is what says why the count below is 156 and not 178.
+        run: |
+          ecl --norc \
+            --eval '(require :asdf)' \
+            --eval '(asdf:initialize-source-registry (list :source-registry (list :directory (uiop:getcwd)) :inherit-configuration))' \
+            --eval '(asdf:load-system :asdf-ios-app)' \
+            --eval '(format t "~&ECL ~a on ~a~%" (lisp-implementation-version) (machine-type))' \
+            --eval '(asdf-ios-app:describe-toolchain)' \
+            --eval '(ext:quit)'
+
+      - name: Run tests
+        # ASDF discards what a TEST-OP returns, so the exit code has to come
+        # from the perform method signalling -- which it does. A suite that
+        # cannot fail the job is a suite that protects nothing.
+        run: |
+          ecl --norc \
+            --eval '(require :asdf)' \
+            --eval '(asdf:initialize-source-registry (list :source-registry (list :directory (uiop:getcwd)) :inherit-configuration))' \
+            --eval '(asdf:test-system :asdf-ios-app)' \
+            --eval '(ext:quit 0)'
