@@ -164,7 +164,34 @@ static cl_object OnMainCall(cl_object thunk)
   IOS_APP_MODULES(PUSH_MODULE)
 #undef PUSH_MODULE
 
-#define INIT_MODULE(name, init) ecl_init_module(NULL, init);
+  /* A module's load-time code can signal -- a REQUIRE for something that was
+     not linked, a package that does not exist yet -- and inside
+     ecl_init_module there is nothing to catch it. Left alone, ECL unwinds to a
+     frame that is not there and the process dies in ecl_unwind with a crash
+     report that names no module and no condition. So each module runs under a
+     handler, and a failure becomes an uncaught NSException whose reason names
+     the module and prints the condition: that reason is what the crash report
+     carries, and what the console shows, and it is the whole diagnosis. There
+     is no continuing: an image whose modules half-initialised is not one to
+     hand an entry point. */
+#define INIT_MODULE(name, init)                                               \
+  ECL_HANDLER_CASE_BEGIN(ecl_process_env(),                                   \
+                         ecl_list1(ecl_make_symbol("SERIOUS-CONDITION",       \
+                                                   "COMMON-LISP"))) {         \
+    ecl_init_module(NULL, init);                                              \
+  } ECL_HANDLER_CASE(1, condition) {                                          \
+    /* si_safe_eval, because printing a condition can itself signal, and this \
+       is the last place that could be allowed to. It yields NIL on failure,  \
+       which StringFromLisp renders as nothing. */                            \
+    cl_object text = si_safe_eval(3,                                          \
+      cl_list(2, ecl_make_symbol("PRINC-TO-STRING", "COMMON-LISP"),           \
+              cl_list(2, ecl_make_symbol("QUOTE", "COMMON-LISP"), condition)),\
+      ECL_NIL, ECL_NIL);                                                      \
+    NSString *reason = [NSString stringWithFormat:                            \
+      @"ECL module %s failed to initialise: %@", name, StringFromLisp(text)]; \
+    NSLog(@"%@", reason);                                                     \
+    [NSException raise:@"ECLBootModuleInitFailed" format:@"%@", reason];      \
+  } ECL_HANDLER_CASE_END;
   IOS_APP_MODULES(INIT_MODULE)
 #undef INIT_MODULE
 

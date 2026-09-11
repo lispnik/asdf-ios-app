@@ -421,20 +421,50 @@ for -- which is exactly the sort of test that passes while proving nothing."
   (signals app::app-build-error
     (app::remote-repl-options (repl-system '(:port "4005")))))
 
-(deftest the-remote-repl-implies-the-modules-it-needs
+(defmacro with-slynk-user ((system &rest initargs) &body body)
+  "BODY with SYSTEM bound to a registered throwaway system depending on slynk.
+
+Registered, because DEPENDENCY-CLOSURE walks systems by name through
+ASDF:FIND-SYSTEM. slynk itself is stood in for when it is not on this
+machine's registry -- only its name matters here -- and both are cleared
+afterwards."
+  (let ((fake (gensym "FAKE")))
+    `(let ((,fake (unless (asdf:find-system "slynk" nil)
+                    (asdf::register-system
+                     (make-instance 'asdf:system :name "slynk")))))
+       (unwind-protect
+            (let ((,system (make-instance 'asdf::ios-app-system
+                                          :name "slynk-user" ,@initargs)))
+              ;; DEPENDS-ON has a reader and no initarg: DEFSYSTEM fills it in
+              ;; by hand, and so does this.
+              (setf (slot-value ,system 'asdf/system::depends-on) '("slynk"))
+              (asdf::register-system ,system)
+              (unwind-protect (progn ,@body)
+                (asdf:clear-system ,system)))
+         (when ,fake (asdf:clear-system ,fake))))))
+
+(deftest slynk-in-the-closure-implies-the-modules-it-needs
   ;; slynk's ECL backend requires sockets, talks to sb-bsd-sockets, and names
   ;; the C package -- all three have to be linked or the app dies at boot.
-  (let ((modules (app::needed-ecl-modules (repl-system t))))
-    (dolist (module '("sockets" "sb-bsd-sockets" "cmp"))
-      (is (member module modules :test #'string-equal))))
+  ;; Whether or not the REPL is on: slynk loads either way, and the crash --
+  ;; an unhandled error inside module initialisation, ending in ecl_unwind --
+  ;; was measured on a phone with :REMOTE-REPL off.
+  (with-slynk-user (system)
+    (let ((modules (app::needed-ecl-modules system)))
+      (dolist (module '("sockets" "sb-bsd-sockets" "cmp"))
+        (is (member module modules :test #'string-equal)))))
+  (with-slynk-user (system :remote-repl t)
+    (is (member "sockets" (app::needed-ecl-modules system) :test #'string-equal))))
+
+(deftest the-remote-repl-alone-implies-nothing
+  ;; It cannot: a :REMOTE-REPL build without slynk is refused before this.
+  (is= nil (app::needed-ecl-modules (repl-system t)))
   (is= nil (app::needed-ecl-modules (repl-system nil))))
 
 (deftest an-implied-module-is-not-added-twice
-  (let ((modules (app::needed-ecl-modules
-                  (make-instance 'asdf::ios-app-system :name "repl-test"
-                                 :remote-repl t
-                                 :bundle-ecl-modules '("sockets")))))
-    (is= 1 (count "sockets" modules :test #'string-equal))))
+  (with-slynk-user (system :bundle-ecl-modules '("sockets"))
+    (is= 1 (count "sockets" (app::needed-ecl-modules system)
+                  :test #'string-equal))))
 
 ;;; ------------------------------------------------------------------
 ;;; the main-thread bridge

@@ -392,10 +392,17 @@ process that does fault still leaves its evidence.
 :remote-repl t                      ; or 9999, or (:port 4005 :interface nil)
 ```
 
-That links `sockets`, `sb-bsd-sockets` and `cmp`, and starts a slynk server at
-boot -- **before** the entry point, because an entry point that signals is
+That starts a slynk server at boot -- **before** the entry point, because an entry point that signals is
 exactly when you most want a way in, and a REPL that came up afterwards would
 leave you rebuilding to find out why.
+
+Slynk anywhere in the closure links `sockets`, `sb-bsd-sockets` and `cmp`,
+whether or not `:remote-repl` is on: slynk loads either way, and its
+`(require 'sockets)` with no linked module is an error inside module
+initialisation, where nothing catches it. A module that fails to initialise
+ends the app with an uncaught `ECLBootModuleInitFailed` exception whose reason
+names the module and the condition -- in the crash report and on the console --
+rather than a bare segmentation fault in `ecl_unwind`, which is what it was.
 
 Slynk is not a dependency of this extension: which REPL server you want is
 yours to say. It is also not on Quicklisp under that name, so put sly's
@@ -533,9 +540,10 @@ because booting one is thirty seconds and varies by machine.
 
 ## Known limits, and things to check
 
-- **Device builds are unverified end to end.** The argument construction, the
-  profile parsing and the refusals are tested; nothing beyond that has been run
-  on a phone.
+- **Device builds are verified by hand, not by CI.** The argument
+  construction, the profile parsing and the refusals are tested; the examples
+  have been built, installed and run on an iPhone 16e from this machine, and
+  nothing automated does that.
 - **`:remote-repl` prevents the entry point running on a device.** Measured on an
   iPhone 16e: with `:remote-repl t` the app produces no output at all and the
   slynk port accepts a connection but never answers, because `%boot` starts the
@@ -550,8 +558,6 @@ because booting one is thirty seconds and varies by machine.
 - **`.ipa` export is unexercised on a real submission.** The layout is tested
   (`Payload/<Name>.app`, on a bundle with the platform key rewritten), and the
   simulator refusal is tested. Nothing has been uploaded to App Store Connect.
-- **Simulator only, in practice.** `:bundle-platforms (:device)` builds, but see
-  the first point.
 - **A file is compiled twice** in the child — natively, then for iOS — so a
   system with a `defconstant` of a non-`eql` value may complain. Alexandria and
   CFFI both survive it. `:bundle-interpreted` is the escape.
@@ -564,8 +570,8 @@ because booting one is thirty seconds and varies by machine.
   app dies at boot with `Package SERVE-EVENT ... referenced in compiled file but
   has not been created`. If you hit that message for some *other* package, this
   is the mechanism to look at.
-- **CI runs the unit suite only.** No runner has a cross-compiled ECL, and
-  building one is a twenty-minute job.
+- **CI stops at the simulator.** The `cross` job builds a cross ECL, caches
+  it, and runs the examples on a booted simulator; no runner has a phone.
 
 ## Licence
 

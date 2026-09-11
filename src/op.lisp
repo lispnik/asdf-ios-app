@@ -205,13 +205,21 @@ which names the packages but not the cause."
                   '("asdf" "uiop") :test #'string=))
         (dependency-closure (asdf:component-name system))))
 
-(defparameter +remote-repl-modules+ '("sockets" "sb-bsd-sockets" "cmp")
-  "The ECL modules a slynk server needs linked into the app.
+(defparameter +slynk-modules+ '("sockets" "sb-bsd-sockets" "cmp")
+  "The ECL modules slynk needs linked into the app.
 
 sockets and sb-bsd-sockets because slynk's ECL backend does
 (require 'sockets) and talks to SB-BSD-SOCKETS directly; cmp because that
 backend references the C package -- C:COMPILER-FATAL-ERROR among others -- and
-because a REPL where COMPILE does not work is a poor sort of REPL.")
+because a REPL where COMPILE does not work is a poor sort of REPL.
+
+Implied by slynk being in the closure, not by :REMOTE-REPL: a system that
+depends on slynk and leaves the REPL off still loads slynk at boot, and its
+(require 'sockets) then finds no linked module. On the simulator that finds
+the host's sockets.fasc and dies interpreting its CLINES forms; on a device it
+finds nothing. Either way the error is raised inside module initialisation,
+where there is no handler, and the app dies in ecl_unwind before it has
+printed a word. Measured on an iPhone 16e.")
 
 (defun remote-repl-options (system)
   "SYSTEM's :REMOTE-REPL as a plist for IOS-APP-RUNTIME:START-REMOTE-REPL, or NIL.
@@ -233,6 +241,11 @@ a plist to say 4005 would be a tax."
                :interface (getf value :interface)
                :style (getf value :style :spawn)))))))
 
+(defun closure-has-slynk-p (system)
+  (some (lambda (dependency)
+          (string-equal "slynk" (asdf:component-name dependency)))
+        (dependency-closure (asdf:component-name system))))
+
 (defun check-remote-repl (system)
   "Refuse a :REMOTE-REPL build whose closure has no slynk in it.
 
@@ -241,22 +254,20 @@ launches, says nothing, and does not listen -- and the fix is one line in the
 .asd. ASDF-IOS-APP deliberately does not depend on slynk itself: which REPL
 server you want, and where its sources live, is yours to say."
   (when (and (remote-repl-options system)
-             (notany (lambda (dependency)
-                       (string-equal "slynk" (asdf:component-name dependency)))
-                     (dependency-closure (asdf:component-name system))))
+             (not (closure-has-slynk-p system)))
     (barf ":REMOTE-REPL needs slynk in the system's closure. Add \"slynk\" to ~
            :DEPENDS-ON, and put sly's slynk/ directory on the source registry ~
            -- it is not on Quicklisp under that name.")))
 
 (defun needed-ecl-modules (system)
   "The ECL modules to link: what the system asked for, plus what its closure
-implies. ASDF and the remote REPL are the implied ones so far."
+implies. ASDF and slynk are the implied ones so far."
   (let ((asked (app-ecl-modules system))
         (implied '()))
     (when (closure-needs-asdf-p system)
       (push "asdf" implied))
-    (when (remote-repl-options system)
-      (setf implied (append (reverse +remote-repl-modules+) implied)))
+    (when (closure-has-slynk-p system)
+      (setf implied (append (reverse +slynk-modules+) implied)))
     (dolist (module (reverse implied) asked)
       (unless (member module asked :test #'string-equal)
         (setf asked (append asked (list module)))))))
