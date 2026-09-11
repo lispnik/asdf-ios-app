@@ -83,6 +83,7 @@ nothing to photograph; three of the six above are built on it.
 | `physics` | shapes falling into a heap | UIKit Dynamics — gravity, collision, elasticity and rotation, with the struct boundary on both sides at once |
 | `attractor` | a strange attractor you can drag | `drawRect:` in Lisp, gestures, trampolines, and redefining the mathematics over SLY |
 | `abi-probe` | a report, not an interface | exactly which structs `si:call-cfun` can carry, measured |
+| `closure-probe` | a report, not an interface | whether `si:make-dynamic-callback` works on a phone — it does, once ECL hands out the entry point rather than the closure record |
 
 Build any of them with `asdf:make`, with `examples/` on your source registry:
 
