@@ -66,6 +66,16 @@ you can write. There are more below.
   <td><img src="doc/screenshots/attractor-dynamic.png" width="210" alt="The same attractor, rendered from a Lisp array into one image, with no C in the app."></td>
   <td><img src="doc/screenshots/abi-probe.png" width="210" alt="A dense monospaced report comparing si:call-cfun against the C compiler."></td>
 </tr>
+<tr>
+  <th align="center">live</th>
+  <th></th>
+  <th></th>
+</tr>
+<tr>
+  <td><img src="doc/screenshots/live.png" width="210" alt="A grid of coloured dots on a dark canvas under a caption, with a status line saying slynk is listening and a tap button."></td>
+  <td></td>
+  <td></td>
+</tr>
 </table>
 
 Every one of these is a screenshot of the simulator, from a clean install of a
@@ -84,6 +94,7 @@ interface, and its `objc/uikit` conveniences — see below.
 | `physics` | shapes falling into a heap | UIKit Dynamics — gravity, collision, elasticity and rotation; a `CGRect` in and a `CGPoint` out, by value, with no C |
 | `attractor-aot` | a strange attractor you can drag | `drawRect:` in Lisp, gestures, a C trampoline compiled ahead of time and kept on purpose, and redefining the mathematics over SLY |
 | `attractor-dynamic` | the same attractor, with no C at all | `drawRect:` as a Lisp method taking its `CGRect` by value, the frame rendered into a Lisp array and shown as one `CGImage`, and the gestures reaching closures |
+| `live` | a canvas, a caption and a button | programming the phone from Emacs over the USB cable: SLY connected to the app on a device, and every function on the screen redefined without a rebuild — see [`examples/live/`](examples/live/) and its `tour.lisp` |
 | `abi-probe` | a report, not an interface | exactly which structs `si:call-cfun` can carry, measured |
 | `closure-probe` | a report, not an interface | what ECL's dynamic FFI can do on a phone, measured on an iPhone 16e: a libffi closure, a `CGRect` in and an `NSRange` out through one, and a variadic call |
 
@@ -411,7 +422,12 @@ closure has no slynk in it is refused at build time rather than at boot.
 
 Connecting: the simulator shares the Mac's loopback, so `M-x sly-connect` to
 `localhost 4005` just works. A device needs a forwarder --
-`brew install libimobiledevice`, then `iproxy 4005 4005`.
+`brew install libimobiledevice`, then `iproxy 4005:4005` -- and
+[`examples/live/`](examples/live/) is built around exactly that: its
+`iphone.el` is one Emacs command that starts the forwarder and connects, and
+its `tour.lisp` is ten forms to send to the phone. Measured on an iPhone 16e:
+the server is up before the entry point, the entry point runs, and SLY gets
+its `connection-info` through the cable.
 
 ### Everything that touches UIKit goes through `on-main`
 
@@ -544,13 +560,12 @@ because booting one is thirty seconds and varies by machine.
   construction, the profile parsing and the refusals are tested; the examples
   have been built, installed and run on an iPhone 16e from this machine, and
   nothing automated does that.
-- **`:remote-repl` prevents the entry point running on a device.** Measured on an
-  iPhone 16e: with `:remote-repl t` the app produces no output at all and the
-  slynk port accepts a connection but never answers, because `%boot` starts the
-  server before calling `:entry-point` and on a device that never returns. The
-  same build runs correctly on the simulator, which is what made it hard to
-  see. Drop `:remote-repl` for a device build until this is understood; the
-  simulator is unaffected.
+- **`:remote-repl` on a device was once reported to block the entry point.**
+  It does not: measured again on an iPhone 16e, iOS 26.6, the server starts,
+  the entry point runs, and a client through `iproxy` is answered, with
+  `:remote-repl t` in the `.asd` and nothing else. The earlier report was not
+  reproduced and its cause was not found; if it comes back, the boot now
+  reports a module that fails to initialise by name rather than dying silently.
 - **The remote REPL is unauthenticated.** Anyone who can reach the port gets
   `eval`. It binds loopback, which on a device means nothing can reach it
   without `iproxy`; do not widen `:interface` outside a network you own, and do

@@ -51,7 +51,6 @@
 
   ;; The last part of the demonstration: connect and redefine STEP-POINT while
   ;; the phone is drawing. Wrap anything that touches the view in
-  ;; IOS-APP-RUNTIME:WITH-MAIN-THREAD -- slynk evaluates on a worker.
-  ;; Off for a device build: with it, a device build never reaches its entry
-  ;; point (see the README).  The simulator keeps the demonstration.
-  :remote-repl #.(null (uiop:getenv "IOS_SIGNING_IDENTITY")))
+  ;; IOS-APP-RUNTIME:WITH-MAIN-THREAD -- slynk evaluates on a worker. On a
+  ;; device, iproxy 4005:4005 first; examples/live/ is the walkthrough.
+  :remote-repl t)
