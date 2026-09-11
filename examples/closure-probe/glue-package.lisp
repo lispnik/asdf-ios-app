@@ -3,4 +3,4 @@
 
 (defpackage #:closure-probe-glue
   (:use #:cl)
-  (:export #:call-from-c #:show-text))
+  (:export #:call-from-c #:call-with-rect-from-c #:show-text))

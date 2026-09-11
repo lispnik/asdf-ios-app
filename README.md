@@ -347,13 +347,19 @@ which fails the moment the C mentions CoreGraphics or `objc_msgSend`.
 
 ### Why a trampoline, and not just more `si:call-cfun`
 
-ECL's foreign type table (`src/c/ffi.d`, `ecl_foreign_type_table`) is a closed
-enum of scalars ending at `ECL_FFI_VOID`. There is no struct, union or array
-member and no way to add one, so `si:call-cfun` has no way to *say* `CGRect`.
+Less reason than there was. ECL's foreign type table (`src/c/ffi.d`,
+`ecl_foreign_type_table`) was a closed enum of scalars ending at
+`ECL_FFI_VOID`, with no struct, union or array member and no way to add one, so
+`si:call-cfun` had no way to *say* `CGRect`. The ECL that `bootstrap-ecl` now
+builds takes `(:struct …)` designators and lets libffi classify them, and a
+`CGRect` goes by value in either direction with nothing compiled. What still
+needs `c-inline` is C that is not a call — a `drawRect:` body, a
+`CGContextRef` — and a variadic send.
 
-The tempting workaround is to decompose the struct into the scalars it is made
-of. `examples/abi-probe/` measures when that is right, against ground truth
-produced by the C compiler in the same binary calling the same functions. On
+The workaround the old table forced was to decompose the struct into the
+scalars it is made of. `examples/abi-probe/` measures when that is right,
+against ground truth produced by the C compiler in the same binary calling the
+same functions, and the answer is why it was never safe to keep. On
 arm64:
 
 | | as an argument | as a return value |

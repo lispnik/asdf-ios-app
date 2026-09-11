@@ -13,6 +13,7 @@
 ;;;;   1. allocate a closure         -- can libffi get a trampoline at all?
 ;;;;   2. call it through libffi     -- does the trampoline execute?
 ;;;;   3. call it from C             -- as a framework would
+;;;;   4. a structure each way       -- a CGRect in, an NSRange out, from C
 ;;;;
 ;;;; Written to Documents/closure-report.txt line by line, flushed, and
 ;;;; shown on screen, because a phone is not a terminal.
@@ -59,6 +60,29 @@
     (let ((via-c (closure-probe-glue:call-from-c (ffi:callback 'probe-add) 40 2)))
       (say "3. from C, (probe-add 40 2) => ~a  ~a" via-c
            (if (eql via-c 42) "correct" "WRONG")))
+    ;; 4. -drawRect: takes a CGRect by value and -rangeOfString: returns an
+    ;;    NSRange by value; a closure that does both is every IMP a Lisp class
+    ;;    on a phone will ever need.
+    (let ((rect '(:struct (:m :double) (:m :double) (:m :double) (:m :double)))
+          (range '(:struct (:m :unsigned-long) (:m :unsigned-long))))
+      (handler-case
+          (progn
+            (si::make-dynamic-callback
+             (lambda (r)
+               ;; The rect arrives as foreign data; the result is foreign data
+               ;; libffi copies out after this returns.
+               (let ((out (si::allocate-foreign-data :void 16)))
+                 (si:foreign-data-set-elt out 0 :unsigned-long
+                                          (round (si:foreign-data-ref-elt r 16 :double)))  ; width
+                 (si:foreign-data-set-elt out 8 :unsigned-long
+                                          (round (si:foreign-data-ref-elt r 24 :double)))  ; height
+                 out))
+             'probe-rect-to-range range (list rect))
+            (let ((result (closure-probe-glue:call-with-rect-from-c
+                           (ffi:callback 'probe-rect-to-range) 1d0 2d0 390d0 844d0)))
+              (say "4. from C, a CGRect in and an NSRange out => ~a  ~a" result
+                   (if (equal result '(390 . 844)) "correct" "WRONG"))))
+        (error (e) (say "4. structures through a closure signalled: ~a" e))))
     (say "")
     (say "a libffi closure works on this device")))
 

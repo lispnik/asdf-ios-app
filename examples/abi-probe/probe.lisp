@@ -1,17 +1,19 @@
 ;;;; probe.lisp -- can ECL's dynamic FFI pass a CGRect by value?
 ;;;;
-;;;; Short answer: it cannot name one. ECL's foreign type table
-;;;; (src/c/ffi.d, ecl_foreign_type_table) is a closed enum of scalars ending
-;;;; at ECL_FFI_VOID -- integers, floats, pointers, :cstring, :object. There is
-;;;; no struct, union or array member and no way to add one, so SI:CALL-CFUN
-;;;; has no way to say CGRect.
-;;;;
-;;;; The interesting question is what happens when you try to work around that
-;;;; by decomposing the struct into the scalars it is made of. Sometimes that
-;;;; is right, sometimes it silently is not, and the difference is decided by
-;;;; AAPCS64 rather than by anything visible from Lisp. This measures which is
-;;;; which, against ground truth produced by the C compiler on the same
+;;;; Written when it could not. ECL's foreign type table (src/c/ffi.d,
+;;;; ecl_foreign_type_table) was a closed enum of scalars ending at
+;;;; ECL_FFI_VOID, so SI:CALL-CFUN had no way to say CGRect, and the only
+;;;; workaround was to decompose a struct into the scalars it is made of --
+;;;; which is right exactly when AAPCS64 would have put those fields where that
+;;;; many separate scalars go, and silently wrong otherwise. This measures which
+;;;; is which, against ground truth produced by the C compiler on the same
 ;;;; machine, in the same binary, calling the same functions.
+;;;;
+;;;; lispnik/ecl's dffi-aggregates branch, which BOOTSTRAP-ECL now builds,
+;;;; gives SI:CALL-CFUN (:struct ...) designators and lets libffi classify
+;;;; them, so none of this is needed there. The measurements stand as the
+;;;; record of what decomposition gets wrong, which is why the workaround was
+;;;; never safe to keep.
 
 (defpackage #:abi-probe
   (:use #:cl)
@@ -208,8 +210,8 @@ SI:CALL-CFUN signature at all.")
       (report-indirect case-name)))
   (say "Conclusion")
   (say "")
-  (say "  ECL's dynamic FFI cannot name an aggregate, so a struct can only be")
-  (say "  smuggled through as the scalars it is made of. That is right exactly")
+  (say "  Without struct designators, a struct can only be smuggled through")
+  (say "  SI:CALL-CFUN as the scalars it is made of. That is right exactly")
   (say "  when the ABI puts those fields where the same number of separate")
   (say "  scalars would have gone: an HFA of at most four floats, or an integer")
   (say "  aggregate of at most 16 bytes. NSRange qualifies. CGRect qualifies as")

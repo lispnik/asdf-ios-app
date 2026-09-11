@@ -14,6 +14,19 @@ a callback, as opposed to what libffi does when SI:CALL-CFUN invokes it."
   (ffi:c-inline (pointer a b) (:pointer-void :int :int) :int
                 "((int (*)(int, int))#0)(#1, #2)" :one-liner t))
 
+(defun call-with-rect-from-c (pointer x y w h)
+  "Call POINTER as probe_range (*)(CGRect) from C, and return (location . length).
+
+The shapes that matter on this ABI: a CGRect is four doubles and travels in
+v0-v3; the two-word integer result comes back in x0 and x1. A closure that gets
+either wrong returns a plausible number rather than failing."
+  (ffi:c-inline (pointer x y w h) (:pointer-void :double :double :double :double) :object "{
+    typedef struct { unsigned long location, length; } probe_range;
+    CGRect r = CGRectMake(#1, #2, #3, #4);
+    probe_range out = ((probe_range (*)(CGRect))#0)(r);
+    @(return) = ecl_cons(ecl_make_fixnum(out.location), ecl_make_fixnum(out.length));
+  }" :one-liner nil))
+
 (defun show-text (string)
   (ffi:c-inline (string) (:cstring) :int "{
     static id tv = 0;
