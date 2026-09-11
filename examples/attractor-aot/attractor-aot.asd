@@ -20,7 +20,18 @@
   :bundle-identifier "org.asdf-ios-app.attractor-aot"
   :bundle-name "AttractorAOT"
   :bundle-executable "attractor-aot"
-  :bundle-platforms (:simulator)
+
+  ;; A device build must be signed, and is built for only when it can be:
+  ;; identity, team and profile come from the environment at read time --
+  ;; IOS_SIGNING_IDENTITY, IOS_DEVELOPMENT_TEAM, IOS_PROVISIONING_PROFILE --
+  ;; so that nobody's identity is committed here.  Unset, this is a simulator
+  ;; build, ad hoc signed, as usual.
+  :bundle-platforms #.(if (uiop:getenv "IOS_SIGNING_IDENTITY")
+                          '(:simulator :device)
+                          '(:simulator))
+  :code-signing-identity #.(or (uiop:getenv "IOS_SIGNING_IDENTITY") :automatic)
+  :development-team #.(uiop:getenv "IOS_DEVELOPMENT_TEAM")
+  :provisioning-profile #.(uiop:getenv "IOS_PROVISIONING_PROFILE")
   :bundle-orientations (:portrait :landscape-left :landscape-right)
 
   ;; The icon is the attractor, iterated four million times at 1024x1024 --
@@ -41,4 +52,6 @@
   ;; The last part of the demonstration: connect and redefine STEP-POINT while
   ;; the phone is drawing. Wrap anything that touches the view in
   ;; IOS-APP-RUNTIME:WITH-MAIN-THREAD -- slynk evaluates on a worker.
-  :remote-repl t)
+  ;; Off for a device build: with it, a device build never reaches its entry
+  ;; point (see the README).  The simulator keeps the demonstration.
+  :remote-repl #.(null (uiop:getenv "IOS_SIGNING_IDENTITY")))
