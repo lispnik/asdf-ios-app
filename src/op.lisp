@@ -606,8 +606,15 @@ request naming the library and init symbol built for each platform."
           (asdf:component-name system)
           (mapcar (lambda (k) (platform-name (find-platform k))) platforms))
     (multiple-value-bind (out err code)
-        (uiop:run-program (list (uiop:native-namestring host)
-                                "-norc" "--load" (uiop:native-namestring boot))
+        ;; WITHOUT-HOST-TOOLCHAIN because the child is where the cross
+        ;; compiling and linking happen: it drives clang through ECL's own C
+        ;; backend, and inherits whatever the caller's shell put in
+        ;; LIBRARY_PATH and friends. This launch does not go through RUN --
+        ;; it wants the child's output streamed rather than captured -- so it
+        ;; has to scrub for itself.
+        (uiop:run-program (without-host-toolchain
+                           (list (uiop:native-namestring host)
+                                 "-norc" "--load" (uiop:native-namestring boot)))
                           :output t :error-output t :ignore-error-status t)
       (declare (ignore out err))
       (unless (and (zerop code) (probe-file reply))

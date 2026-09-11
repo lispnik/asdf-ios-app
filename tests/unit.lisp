@@ -648,3 +648,33 @@ the simulator, where SYS: resolves to a readable directory on the Mac."
                              (symbol-value pool)))
                  (is (some #'hash-table-p (symbol-value pool))))
             (setf (symbol-value pool) saved))))))
+
+;;; ------------------------------------------------------------------
+;;; the host's C toolchain environment stays out of a cross build
+
+(deftest a-clean-environment-leaves-the-command-alone
+  "Nothing set, nothing wrapped. The scrubbing must not turn every command in
+the build into an env(1) invocation on a machine that never needed it."
+  (let ((app::+host-toolchain-environment+ '("ASDF_IOS_APP_NO_SUCH_VARIABLE")))
+    (is= '("/usr/bin/clang" "-c" "x.m")
+         (app::without-host-toolchain '("/usr/bin/clang" "-c" "x.m")))))
+
+(deftest a-set-variable-is-unset-for-the-child
+  "LIBRARY_PATH is an implicit -L that no command line mentions. A Homebrew
+profile sets it to a host GCC's library directory, and it then applies to an
+iOS link, where the objects are for another platform entirely."
+  (let ((argv (app::without-host-toolchain '("/usr/bin/clang" "-o" "app"))))
+    (if (not (uiop:getenvp "LIBRARY_PATH"))
+        (skip "LIBRARY_PATH is not set in this environment")
+        (progn
+          (is= "/usr/bin/env" (first argv))
+          (is (member "LIBRARY_PATH" argv :test #'string=))
+          (is= "-u" (nth (- (position "LIBRARY_PATH" argv :test #'string=) 1) argv))
+          ;; the command itself survives, in order, at the end
+          (is= '("/usr/bin/clang" "-o" "app") (last argv 3))))))
+
+(deftest the-variables-named-are-the-ones-that-aim-a-compiler
+  "A list worth asserting: each entry is a silent -I or -L, and SDKROOT is a
+whole sysroot. Adding to it is fine; losing one of these is the bug."
+  (dolist (name '("CPATH" "C_INCLUDE_PATH" "LIBRARY_PATH" "SDKROOT"))
+    (is (member name app::+host-toolchain-environment+ :test #'string=))))

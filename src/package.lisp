@@ -32,6 +32,38 @@
 (defun barf (fmt &rest args)
   (error 'app-build-error :format-control fmt :format-arguments args))
 
+(defparameter +host-toolchain-environment+
+  '("CPATH" "C_INCLUDE_PATH" "CPLUS_INCLUDE_PATH"
+    "OBJC_INCLUDE_PATH" "OBJCPLUS_INCLUDE_PATH"
+    "LIBRARY_PATH" "LD_LIBRARY_PATH" "DYLD_LIBRARY_PATH" "DYLD_FRAMEWORK_PATH"
+    "SDKROOT")
+  "Variables that aim a compiler at the *host's* headers and libraries.
+
+Each one is an implicit -I or -L that no command line mentions, which in a
+cross build is precisely the wrong machine. A Homebrew shell profile setting
+LIBRARY_PATH to a host GCC's library directory is enough to put
+
+    ld: warning: search path '/opt/homebrew/Cellar/gcc/.../16' not found
+
+in the middle of an iOS link. Benign in that instance only because the path did
+not exist: on a machine where it does, the linker would search a directory of
+arm64 *macOS* objects while building for a phone. SDKROOT is here for the same
+reason and is the worst of them -- it is a whole sysroot, and clang takes it
+without comment.")
+
+(defun without-host-toolchain (argv)
+  "ARGV, run with +HOST-TOOLCHAIN-ENVIRONMENT+ removed from its environment.
+
+/usr/bin/env rather than UIOP's :ENVIRONMENT, which on ECL is accepted and then
+ignored -- the subprocess inherits the lot, and nothing says so. Only variables
+that are actually set are named, so the usual command line is unchanged."
+  (let ((set (remove-if-not #'uiop:getenvp +host-toolchain-environment+)))
+    (if (null set)
+        argv
+        (append (list "/usr/bin/env")
+                (loop for name in set append (list "-u" name))
+                argv))))
+
 (defun run (argv &key (ignore-error-status nil) input directory echo-error)
   "Run ARGV, returning its stdout as a string. Errors are fatal by default.
 
@@ -40,7 +72,7 @@ warnings there and say nothing on stdout, so a build that discards stderr
 whenever the exit code is zero is a build that silently swallows every warning
 in the project."
   (multiple-value-bind (out err code)
-      (uiop:run-program argv
+      (uiop:run-program (without-host-toolchain argv)
                         :output '(:string :stripped t)
                         :error-output '(:string :stripped t)
                         :input input
@@ -90,7 +122,8 @@ it, so that the refusals can be tested on the machine this library is for.")
     "/usr/bin/plutil"                               ; validation, reading profiles
     "/usr/libexec/PlistBuddy"                       ; merging actool's partial plist
     "/usr/bin/ditto" "/usr/bin/sw_vers"             ; .ipa export, provenance keys
-    "/usr/bin/git" "/usr/bin/make")                 ; BOOTSTRAP-ECL
+    "/usr/bin/git" "/usr/bin/make"                  ; BOOTSTRAP-ECL
+    "/usr/bin/env")                                 ; WITHOUT-HOST-TOOLCHAIN
   "Every command line tool the build shells out to, checked up front so a
 missing one is reported before any work happens rather than from somewhere deep
 inside RUN. A test asserts this list covers every /usr/bin/ literal in the
