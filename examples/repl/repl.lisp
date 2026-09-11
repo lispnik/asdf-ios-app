@@ -4,15 +4,13 @@
 ;;;; that Return was pressed, and the delegate here is an Objective-C class
 ;;;; created at run time whose one method is a Lisp function.
 ;;;;
-;;;; That needs no C compiler at build time and no trampoline file, because the
-;;;; ECL compiler handles FFI:DEFCALLBACK itself and emits an ordinary C
-;;;; function for it. The method's signature is what makes it possible: BOOL,
-;;;; id, SEL, id -- every one a scalar or a pointer. A method that took a
-;;;; CGRect could not be written this way. See examples/abi-probe.
+;;;; That needs no C compiler at build time: the method is a libffi closure
+;;;; that objc makes at run time, on the phone, and it could take a CGRect if
+;;;; it wanted one.
 
 (defpackage #:ios-repl
   (:use #:cl)
-  (:local-nicknames (#:oc #:objc-lite))
+  (:local-nicknames (#:ui #:uikit))
   (:export #:start #:evaluate #:echo))
 
 (in-package #:ios-repl)
@@ -52,59 +50,53 @@ have somewhere to go -- there is no console behind this window."
     (setf *lines* (subseq *lines* 0 200)))
   (when *transcript*
     (let ((all (format nil "~{~a~%~}" (reverse *lines*))))
-      (oc:send *transcript* "setText:" (oc:nsstr all))
-      ;; NSRange is two 64-bit integers, which AAPCS64 passes in x0 and x1 --
-      ;; exactly where two :LONG arguments go. This is the rare struct that
-      ;; needs no trampoline, and it is why the transcript can scroll.
-      (oc:send *transcript* "scrollRangeToVisible:" (max 0 (1- (length all))) 1)))
+      (objc:invoke *transcript* "setText:" all)
+      ;; An NSRange by value, as (location . length).
+      (objc:invoke *transcript* "scrollRangeToVisible:" (cons (max 0 (1- (length all))) 1))))
   text)
 
+(defun text-of (field)
+  (let ((text (objc:invoke field "text")))
+    (if (cffi:null-pointer-p text) "" (objc:ns-string-to-string text))))
+
 (defun submit (field)
-  (let ((source (oc:lisp-string (oc:send field "text"))))
+  (let ((source (text-of field)))
     (when (plusp (length (string-trim " " source)))
       (echo (format nil "> ~a" source))
       (echo (evaluate source))
-      (oc:send field "setText:" (oc:nsstr "")))))
+      (objc:invoke field "setText:" ""))))
 
 ;;; ------------------------------------------------------------------
 ;;; the delegate
 ;;;
-;;; The Objective-C encoding "c@:@" reads: returns a char -- BOOL is a signed
-;;; char -- taking self, _cmd and one object. Returning NO stops UIKit
+;;; An Objective-C class whose one method is Lisp. UIKit sends
+;;; -textFieldShouldReturn: when Return is pressed; returning NO stops it
 ;;; inserting a newline, which is what a single-line field wants.
-;;;
-;;; The Lisp return type is :BYTE and not :CHAR, which is the same width and
-;;; not the same thing: ECL's :CHAR is a Lisp CHARACTER, so returning 0 from it
-;;; fails inside CHAR-CODE. :BYTE is the 8-bit integer. Every BOOL callback
-;;; wants :BYTE.
 
-(ffi:defcallback should-return :byte
-    ((self :pointer-void) (cmd :pointer-void) (field :pointer-void))
-  (declare (ignore self cmd))
-  ;; Nothing may be signalled out of here: this frame's caller is UIKit, and a
-  ;; condition unwinding through it corrupts the frame.
+(objc:define-objc-class text-field-delegate ()
+  ()
+  (:objc-class-name "LispTextFieldDelegate"))
+
+(objc:define-objc-method ("textFieldShouldReturn:" objc:objc-bool)
+    ((self text-field-delegate) (field objc:objc-object-pointer))
+  ;; Nothing may be signalled out of here: this frame's caller is UIKit.
   (handler-case (submit field)
     (error (condition)
       (ignore-errors (echo (format nil "; delegate: ~a" condition)))))
-  0)
+  nil)
 
 (defun install-delegate (field)
-  (let ((class (oc:define-class "LispTextFieldDelegate" "NSObject"
-                 (list (list "textFieldShouldReturn:"
-                             (ffi:callback 'should-return)
-                             "c@:@")))))
-    ;; UIKit holds a delegate weakly and Lisp holds nothing it can see, so
-    ;; without OC:RETAIN this is deallocated before the first Return.
-    (let ((delegate (oc:retain (oc:send (oc:send class "alloc") "init"))))
-      (oc:send field "setDelegate:" delegate)
-      delegate)))
+  ;; UIKit holds a delegate weakly and Lisp holds nothing it can see, so
+  ;; without UI:KEEP this is collected before the first Return.
+  (let ((delegate (ui:keep (make-instance 'text-field-delegate))))
+    (objc:invoke field "setDelegate:" (objc:objc-object-pointer delegate))
+    delegate))
 
 ;;; ------------------------------------------------------------------
 ;;; buttons
 ;;;
-;;; LispTarget ships with asdf-ios-app and covers everything in UIKit that
-;;; uses target/action. It evaluates a form string, so the button's payload is
-;;; just Lisp source.
+;;; Each carries a form as its label's payload, so what a button does is
+;;; readable in the transcript when it is pressed.
 
 (defparameter +buttons+
   '(("version" . "(lisp-implementation-version)")
@@ -114,12 +106,12 @@ have somewhere to go -- there is no console behind this window."
 
 (defun clear ()
   (setf *lines* '())
-  (when *transcript* (oc:send *transcript* "setText:" (oc:nsstr "")))
+  (when *transcript* (objc:invoke *transcript* "setText:" ""))
   (values))
 
 (defun make-button (label form)
-  (oc:on-tap (oc:system-button label)
-             (format nil "(ios-repl::run-button ~s)" form)))
+  (ui:on-tap (ui:system-button label)
+             (lambda (sender) (declare (ignore sender)) (run-button form))))
 
 (defun run-button (source)
   (echo (format nil "> ~a" source))
@@ -130,65 +122,65 @@ have somewhere to go -- there is no console behind this window."
 ;;; the interface
 
 (defun build-interface ()
-  (let* ((root (oc:root-view))
-         (safe (oc:send root "safeAreaLayoutGuide"))
-         ;; iOS 15's keyboard layout guide: the keyboard as a set of anchors.
-         ;; The alternative is observing UIKeyboardWillChangeFrameNotification
-         ;; and reading a CGRect out of its userInfo -- a struct, by value, and
-         ;; therefore out of reach without a trampoline.
-         (keyboard (oc:send root "keyboardLayoutGuide"))
-         (transcript (oc:new "UITextView"))
-         (input (oc:new "UITextField"))
-         (row (oc:new "UIStackView")))
+  (let* ((root (ui:root-view))
+         (safe (objc:invoke root "safeAreaLayoutGuide"))
+         ;; iOS 15's keyboard layout guide: the keyboard as a set of anchors,
+         ;; which is simpler than observing UIKeyboardWillChangeFrameNotification
+         ;; and reading a CGRect out of its userInfo.
+         (keyboard (objc:invoke root "keyboardLayoutGuide"))
+         (transcript (ui:new "UITextView"))
+         (input (ui:new "UITextField"))
+         (row (ui:new "UIStackView")))
 
-    (oc:send root "setBackgroundColor:" (oc:system-color "systemBackground"))
+    (objc:invoke root "setBackgroundColor:" (ui:system-color "systemBackground"))
 
-    (oc:send transcript "setEditable:" 0)
-    (oc:send transcript "setFont:" (oc:mono-font 12))
-    (oc:send transcript "setBackgroundColor:" (oc:system-color "secondarySystemBackground"))
-    (oc:send root "addSubview:" transcript)
+    (objc:invoke transcript "setEditable:" 0)
+    (objc:invoke transcript "setFont:" (ui:mono-font 12))
+    (objc:invoke transcript "setBackgroundColor:" (ui:system-color "secondarySystemBackground"))
+    (objc:invoke root "addSubview:" transcript)
 
-    (oc:send row "setSpacing:" 8d0)
-    (oc:send row "setDistribution:" 1)          ; UIStackViewDistributionFillEqually
+    (objc:invoke row "setSpacing:" 8d0)
+    (objc:invoke row "setDistribution:" 1)          ; UIStackViewDistributionFillEqually
     (loop for (label . form) in +buttons+
-          do (oc:send row "addArrangedSubview:" (make-button label form)))
-    (oc:send root "addSubview:" row)
+          do (objc:invoke row "addArrangedSubview:" (make-button label form)))
+    (objc:invoke root "addSubview:" row)
 
-    (oc:send input "setPlaceholder:" (oc:nsstr "(+ 1 2)"))
-    (oc:send input "setBorderStyle:" 3)          ; RoundedRect
-    (oc:send input "setFont:" (oc:mono-font 15))
-    (oc:send input "setAutocorrectionType:" 1)   ; No
-    (oc:send input "setAutocapitalizationType:" 0)
-    (oc:send input "setSmartQuotesType:" 1)      ; No -- curly quotes do not read
-    (oc:send input "setSmartDashesType:" 1)
-    (oc:send input "setReturnKeyType:" 9)        ; Done
-    (oc:send root "addSubview:" input)
+    (objc:invoke input "setPlaceholder:" "(+ 1 2)")
+    (objc:invoke input "setBorderStyle:" 3)          ; RoundedRect
+    (objc:invoke input "setFont:" (ui:mono-font 15))
+    (objc:invoke input "setAutocorrectionType:" 1)   ; No
+    (objc:invoke input "setAutocapitalizationType:" 0)
+    (objc:invoke input "setSmartQuotesType:" 1)      ; No -- curly quotes do not read
+    (objc:invoke input "setSmartDashesType:" 1)
+    (objc:invoke input "setReturnKeyType:" 9)        ; Done
+    (objc:invoke root "addSubview:" input)
 
-    (oc:pin transcript "topAnchor" safe "topAnchor" 8)
-    (oc:pin transcript "leadingAnchor" safe "leadingAnchor" 8)
-    (oc:pin transcript "trailingAnchor" safe "trailingAnchor" -8)
-    (oc:pin transcript "bottomAnchor" row "topAnchor" -8)
+    (ui:pin transcript "topAnchor" safe "topAnchor" 8)
+    (ui:pin transcript "leadingAnchor" safe "leadingAnchor" 8)
+    (ui:pin transcript "trailingAnchor" safe "trailingAnchor" -8)
+    (ui:pin transcript "bottomAnchor" row "topAnchor" -8)
 
-    (oc:pin row "leadingAnchor" safe "leadingAnchor" 8)
-    (oc:pin row "trailingAnchor" safe "trailingAnchor" -8)
-    (oc:fix row "heightAnchor" 34)
-    (oc:pin row "bottomAnchor" input "topAnchor" -8)
+    (ui:pin row "leadingAnchor" safe "leadingAnchor" 8)
+    (ui:pin row "trailingAnchor" safe "trailingAnchor" -8)
+    (ui:fix row "heightAnchor" 34)
+    (ui:pin row "bottomAnchor" input "topAnchor" -8)
 
-    (oc:pin input "leadingAnchor" safe "leadingAnchor" 8)
-    (oc:pin input "trailingAnchor" safe "trailingAnchor" -8)
-    (oc:pin input "bottomAnchor" keyboard "topAnchor" -8)
+    (ui:pin input "leadingAnchor" safe "leadingAnchor" 8)
+    (ui:pin input "trailingAnchor" safe "trailingAnchor" -8)
+    (ui:pin input "bottomAnchor" keyboard "topAnchor" -8)
 
     (setf *transcript* transcript
           *input* input)
     (install-delegate input)
     ;; Ready to type. It also makes the keyboard layout guide earn its keep
     ;; immediately: the input rises above the keyboard and the transcript
-    ;; shortens, with no notification observer and no CGRect anywhere.
-    (oc:send input "becomeFirstResponder")
+    ;; shortens, with no notification observer.
+    (objc:invoke input "becomeFirstResponder")
     (values)))
 
 (defun start ()
   "Runs on the main thread and returns; the run loop follows."
+  (objc:ensure-objc-initialized)
   (build-interface)
   (echo (format nil "~a ~a on ~a"
                 (lisp-implementation-type) (lisp-implementation-version)
@@ -211,10 +203,10 @@ have somewhere to go -- there is no console behind this window."
 Not a mock: this is objc_msgSend dispatching a selector on a class that did not
 exist when the app was built, into a method whose body is Lisp. The only part
 of the real path it leaves out is the finger."
-  (let ((delegate (oc:send *input* "delegate")))
-    (oc:send *input* "setText:" (oc:nsstr "(* 6 7)"))
+  (let ((delegate (objc:invoke *input* "delegate")))
+    (objc:invoke *input* "setText:" "(* 6 7)")
     (echo "")
     (echo ";; objc_msgSend(delegate, @selector(textFieldShouldReturn:), field)")
-    (let ((answer (oc:send-bool delegate "textFieldShouldReturn:" *input*)))
+    (let ((answer (objc:invoke-bool delegate "textFieldShouldReturn:" *input*)))
       (echo (format nil ";; -> ~:[NO~;YES~], which is what stops UIKit inserting a newline."
                     answer)))))

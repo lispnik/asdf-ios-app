@@ -8,7 +8,7 @@
   :description "A CGPath built in Lisp, stroked by CAShapeLayer and animated."
   :version "1.0.0"
   :serial t
-  :depends-on ("objc-lite")
+  :depends-on ("objc/uikit")
   :components ((:file "layers"))
 
   :bundle-identifier "org.asdf-ios-app.layers"

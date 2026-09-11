@@ -5,21 +5,13 @@
 ;;;; them. All of that is objects and CGFloats, so the whole simulation is
 ;;;; reachable from a bridge with no C in it.
 ;;;;
-;;;; Two places the struct boundary shows up, and they land on opposite sides:
-;;;;
-;;;;   -initWithFrame:   takes a CGRect BY VALUE and works anyway, sent as four
-;;;;                     doubles. A CGRect is an HFA of four doubles, which
-;;;;                     AAPCS64 puts in v0-v3 -- exactly where four separate
-;;;;                     doubles go. It is a coincidence, and examples/abi-probe
-;;;;                     measures precisely how far it extends.
-;;;;
-;;;;   -locationInView:  RETURNS a CGPoint by value, and no coincidence saves
-;;;;                     that: a scalar return type names one register. Hence
-;;;;                     glue.lisp, which is four lines long.
+;;;; Structures go by value in both directions -- -initWithFrame: takes a
+;;;; CGRect, -locationInView: returns a CGPoint -- and objc's dynamic FFI
+;;;; carries them, so there is no C anywhere in this app.
 
 (defpackage #:physics
   (:use #:cl)
-  (:local-nicknames (#:oc #:objc-lite))
+  (:local-nicknames (#:ui #:uikit))
   (:export #:start #:drop #:reset))
 
 (in-package #:physics)
@@ -46,25 +38,23 @@
 
 (defun make-shape (x y size roundness)
   "A coloured view at X,Y. ROUNDNESS of 0.5 is a circle."
-  (let ((view (oc:send (oc:send (oc:cls "UIView") "alloc")
-                       ;; The CGRect, as four doubles. See the header.
-                       "initWithFrame:"
-                       (float x 1d0) (float y 1d0)
-                       (float size 1d0) (float size 1d0))))
+  (let ((view (objc:invoke (objc:invoke "UIView" "alloc")
+                           "initWithFrame:" (vector x y size size))))
     (destructuring-bind (red green blue) (nth (random (length +palette+)) +palette+)
-      (oc:send view "setBackgroundColor:" (oc:color red green blue)))
-    (oc:send (oc:send view "layer") "setCornerRadius:" (float (* size roundness) 1d0))
+      (objc:invoke view "setBackgroundColor:" (ui:color red green blue)))
+    (objc:invoke (objc:invoke view "layer") "setCornerRadius:" (* size roundness))
     view))
 
 (defun add-shape (view)
   "Put VIEW on screen and hand it to every behaviour that is already running."
-  (oc:send *field* "addSubview:" view)
+  (objc:invoke *field* "addSubview:" view)
   (push view *shapes*)
   (dolist (behaviour (list *gravity* *collision* *elasticity*) view)
-    (oc:send behaviour "addItem:" view)))
+    (objc:invoke behaviour "addItem:" view)))
 
 (defun field-width ()
-  (car (physics-glue:view-size *field*)))
+  ;; -bounds is a CGRect, as #(x y width height).
+  (aref (objc:invoke *field* "bounds") 2))
 
 (defparameter +crowd-limit+ 40
   "Shapes are cheap but not free, and a heap this deep already looks like a
@@ -93,106 +83,103 @@ simulation and a stuck pile."
 (defun array-of (objects)
   "An NSArray. Built one addObject: at a time, since +arrayWithObjects: is
 variadic and nil-terminated, which is not something to send blind."
-  (let ((array (oc:send (oc:cls "NSMutableArray") "array")))
+  (let ((array (objc:invoke "NSMutableArray" "array")))
     (dolist (object objects array)
-      (oc:send array "addObject:" object))))
+      (objc:invoke array "addObject:" object))))
 
 (defun build-simulation ()
   (let ((items (array-of '())))
     (setf *animator*
-          (oc:retain (oc:send (oc:send (oc:cls "UIDynamicAnimator") "alloc")
-                              "initWithReferenceView:" *field*)))
+          (ui:keep (objc:invoke (objc:invoke "UIDynamicAnimator" "alloc")
+                                "initWithReferenceView:" *field*)))
     (setf *gravity*
-          (oc:send (oc:send (oc:cls "UIGravityBehavior") "alloc")
-                   "initWithItems:" items))
-    (oc:send *gravity* "setMagnitude:" 1.4d0)
+          (objc:invoke (objc:invoke "UIGravityBehavior" "alloc")
+                       "initWithItems:" items))
+    (objc:invoke *gravity* "setMagnitude:" 1.4d0)
 
     (setf *collision*
-          (oc:send (oc:send (oc:cls "UICollisionBehavior") "alloc")
-                   "initWithItems:" items))
+          (objc:invoke (objc:invoke "UICollisionBehavior" "alloc")
+                       "initWithItems:" items))
     ;; The reference view's edges become walls, which is what stops everything
     ;; falling out of the bottom of the world.
-    (oc:send *collision* "setTranslatesReferenceBoundsIntoBoundary:" 1)
+    (objc:invoke *collision* "setTranslatesReferenceBoundsIntoBoundary:" 1)
 
     (setf *elasticity*
-          (oc:send (oc:send (oc:cls "UIDynamicItemBehavior") "alloc")
-                   "initWithItems:" items))
-    (oc:send *elasticity* "setElasticity:" 0.55d0)
-    (oc:send *elasticity* "setFriction:" 0.45d0)
-    (oc:send *elasticity* "setResistance:" 0.05d0)
-    (oc:send *elasticity* "setAllowsRotation:" 1)
+          (objc:invoke (objc:invoke "UIDynamicItemBehavior" "alloc")
+                       "initWithItems:" items))
+    (objc:invoke *elasticity* "setElasticity:" 0.55d0)
+    (objc:invoke *elasticity* "setFriction:" 0.45d0)
+    (objc:invoke *elasticity* "setResistance:" 0.05d0)
+    (objc:invoke *elasticity* "setAllowsRotation:" 1)
 
     (dolist (behaviour (list *gravity* *collision* *elasticity*))
-      (oc:send *animator* "addBehavior:" behaviour))))
+      (objc:invoke *animator* "addBehavior:" behaviour))))
 
 (defun reset ()
   (stop-rain)
   (dolist (view *shapes*)
     (dolist (behaviour (list *gravity* *collision* *elasticity*))
-      (oc:send behaviour "removeItem:" view))
-    (oc:send view "removeFromSuperview"))
+      (objc:invoke behaviour "removeItem:" view))
+    (objc:invoke view "removeFromSuperview"))
   (setf *shapes* '())
   (values))
 
 ;;; ------------------------------------------------------------------
 ;;; touching it
 ;;;
-;;; A tap drops a shape where you touched. LispTarget carries the callback --
-;;; it ignores the sender, which is why the recognizer is kept in a variable
-;;; here rather than read back out of the gesture.
+;;; A tap drops a shape where you touched.
 
-(defun on-tap ()
-  (let ((point (physics-glue:location-in-view *tap* *field*)))
-    (drop (car point))
+(defun tapped (recognizer)
+  ;; -locationInView: returns a CGPoint, as #(x y).
+  (let ((point (objc:invoke recognizer "locationInView:" *field*)))
+    (drop (aref point 0))
     ;; The taptic engine. Nothing happens on the simulator, and on a phone this
     ;; is the difference between a demo and something that feels made.
-    (let ((haptics (oc:send (oc:send (oc:cls "UIImpactFeedbackGenerator") "alloc")
-                            "initWithStyle:" 1)))   ; medium
-      (oc:send haptics "impactOccurred")))
+    (let ((haptics (objc:invoke (objc:invoke "UIImpactFeedbackGenerator" "alloc")
+                                "initWithStyle:" 1)))   ; medium
+      (objc:invoke haptics "impactOccurred")))
   (values))
 
 ;;; ------------------------------------------------------------------
 ;;; the interface
 
 (defun build-interface ()
-  (let* ((root (oc:root-view))
-         (safe (oc:send root "safeAreaLayoutGuide"))
-         (field (oc:new "UIView"))
-         (row (oc:new "UIStackView")))
+  (let* ((root (ui:root-view))
+         (safe (objc:invoke root "safeAreaLayoutGuide"))
+         (field (ui:new "UIView"))
+         (row (ui:new "UIStackView")))
 
-    (oc:send root "setBackgroundColor:" (oc:color 0.07 0.07 0.09))
+    (objc:invoke root "setBackgroundColor:" (ui:color 0.07 0.07 0.09))
 
-    (oc:send root "addSubview:" field)
-    (oc:pin field "topAnchor" safe "topAnchor")
-    (oc:pin field "leadingAnchor" safe "leadingAnchor")
-    (oc:pin field "trailingAnchor" safe "trailingAnchor")
+    (objc:invoke root "addSubview:" field)
+    (ui:pin field "topAnchor" safe "topAnchor")
+    (ui:pin field "leadingAnchor" safe "leadingAnchor")
+    (ui:pin field "trailingAnchor" safe "trailingAnchor")
 
-    (oc:send row "setSpacing:" 8d0)
-    (oc:send row "setDistribution:" 1)
-    (oc:send row "addArrangedSubview:"
-             (oc:on-tap (oc:system-button "drop") "(physics:drop)"))
-    (oc:send row "addArrangedSubview:"
-             (oc:on-tap (oc:system-button "rain") "(physics::rain 12)"))
-    (oc:send row "addArrangedSubview:"
-             (oc:on-tap (oc:system-button "reset") "(physics:reset)"))
-    (oc:send root "addSubview:" row)
+    (objc:invoke row "setSpacing:" 8d0)
+    (objc:invoke row "setDistribution:" 1)
+    (flet ((button (label function)
+             (ui:on-tap (ui:system-button label)
+                        (lambda (sender) (declare (ignore sender)) (funcall function)))))
+      (objc:invoke row "addArrangedSubview:" (button "drop" #'drop))
+      (objc:invoke row "addArrangedSubview:" (button "rain" (lambda () (rain 12))))
+      (objc:invoke row "addArrangedSubview:" (button "reset" #'reset)))
+    (objc:invoke root "addSubview:" row)
 
-    (oc:pin row "topAnchor" field "bottomAnchor" 6)
-    (oc:pin row "leadingAnchor" safe "leadingAnchor" 12)
-    (oc:pin row "trailingAnchor" safe "trailingAnchor" -12)
-    (oc:pin row "bottomAnchor" safe "bottomAnchor" -8)
-    (oc:fix row "heightAnchor" 34)
+    (ui:pin row "topAnchor" field "bottomAnchor" 6)
+    (ui:pin row "leadingAnchor" safe "leadingAnchor" 12)
+    (ui:pin row "trailingAnchor" safe "trailingAnchor" -12)
+    (ui:pin row "bottomAnchor" safe "bottomAnchor" -8)
+    (ui:fix row "heightAnchor" 34)
 
     (setf *field* field)
 
     ;; A tap anywhere in the field drops a shape there.
-    (setf *tap* (oc:retain
-                 (oc:send (oc:send (oc:cls "UITapGestureRecognizer") "alloc")
-                          "initWithTarget:action:"
-                          (oc:retain (oc:send (oc:cls "LispTarget") "targetWithForm:"
-                                              (oc:nsstr "(physics::on-tap)")))
-                          (oc:sel "fire:"))))
-    (oc:send field "addGestureRecognizer:" *tap*)
+    (setf *tap* (ui:keep
+                 (objc:invoke (objc:invoke "UITapGestureRecognizer" "alloc")
+                              "initWithTarget:action:"
+                              (ui:action-target #'tapped) "fire:")))
+    (objc:invoke field "addGestureRecognizer:" *tap*)
     (values)))
 
 (defvar *timer* nil)
@@ -203,25 +190,17 @@ variadic and nil-terminated, which is not something to send blind."
 
 Spread over time rather than space: a shape needs room to fall before the next
 one lands on it, and fourteen arriving in the same frame is a jam rather than
-weather. NSTimer through LispTarget, which is the same target/action machinery
-the buttons use."
+weather. An NSTimer, through the same target/action machinery the buttons
+use."
   (incf *pending* count)
   (unless *timer*
-    (setf *timer*
-          (oc:retain
-           (oc:send (oc:cls "NSTimer")
-                    "scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"
-                    0.2d0
-                    (oc:retain (oc:send (oc:cls "LispTarget") "targetWithForm:"
-                                        (oc:nsstr "(physics::rain-tick)")))
-                    (oc:sel "fire:")
-                    nil
-                    1))))
+    (setf *timer* (ui:after-every 0.2 (lambda (timer) (declare (ignore timer)) (rain-tick)))))
   (values))
 
 (defun stop-rain ()
   (when *timer*
-    (oc:send *timer* "invalidate")
+    (objc:invoke *timer* "invalidate")
+    (ui:unkeep *timer*)
     (setf *timer* nil))
   (setf *pending* 0)
   (values))
@@ -233,6 +212,7 @@ the buttons use."
   (values))
 
 (defun start ()
+  (objc:ensure-objc-initialized)
   (build-interface)
   (build-simulation)
   (rain 14)

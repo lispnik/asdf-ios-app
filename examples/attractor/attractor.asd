@@ -27,9 +27,12 @@
   ;; catalogue and reports which Info.plist keys the result needs.
   :bundle-icon "Attractor.xcassets"
 
-  ;; The C side. Cross-compiled only, which is what lets it use FFI:C-INLINE:
-  ;; a drawRect: IMP receives a CGRect BY VALUE, and no Lisp-side FFI on ECL
-  ;; can name an aggregate.
+  ;; The C side. Cross-compiled only, which is what lets it use FFI:C-INLINE.
+  ;; Written when a drawRect: IMP receiving a CGRect by value was out of reach
+  ;; of ECL's dynamic FFI; it is not any more, and the other examples define
+  ;; such methods in Lisp through objc. This one keeps its C, because a
+  ;; drawRect: body that calls CoreGraphics two million times a frame is a
+  ;; reasonable thing to have in C.
   :bundle-trampolines ("glue.lisp")
   :bundle-frameworks ("UIKit" "Foundation" "CoreGraphics")
 

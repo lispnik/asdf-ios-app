@@ -8,7 +8,7 @@
   :description "SVG generated in Lisp, shown in a WKWebView, with a remembered choice."
   :version "1.0.0"
   :serial t
-  :depends-on ("objc-lite")
+  :depends-on ("objc/uikit")
   :components ((:file "chart"))
 
   :bundle-identifier "org.asdf-ios-app.chart"

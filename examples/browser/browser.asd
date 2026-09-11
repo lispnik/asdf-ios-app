@@ -8,7 +8,7 @@
   :description "Browse the running image: packages, symbols, and what they are."
   :version "1.0.0"
   :serial t
-  :depends-on ("objc-lite")
+  :depends-on ("objc/uikit")
   :components ((:file "browser"))
 
   :bundle-identifier "org.asdf-ios-app.browser"

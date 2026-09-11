@@ -69,19 +69,19 @@ you can write. There are more below.
 
 Every one of these is a screenshot of the simulator, from a clean install of a
 build made by `asdf:make` — there is no Xcode project anywhere in the
-repository. `objc-lite`, the seventh, is a library rather than an app, and has
-nothing to photograph; three of the six above are built on it.
+repository. Five of them are written against
+[objc](https://github.com/lispnik/objc), the LispWorks-compatible Objective-C
+interface, and its `objc/uikit` conveniences — see below.
 
 | | what it is | what it shows |
 |---|---|---|
 | `hello` | a label | the least that builds |
-| `objc-lite` | a library, not an app | the Objective-C bridge the three above are built on — see below |
 | `repl` | a REPL with a keyboard | a `UITextFieldDelegate` written in Lisp, and `keyboardLayoutGuide` instead of a `CGRect` |
 | `browser` | the running image, as a table | a `UITableViewDataSource` written in Lisp — packages, symbols, and what a symbol is |
 | `chart` | SVG in a `WKWebView` | a framework beyond UIKit, a bundled resource, and state that survives a relaunch |
 | `layers` | a rose curve drawing itself | Core Animation — a `CGPath` computed in Lisp, stroked by a `CAShapeLayer`, with a dot riding the tip |
-| `physics` | shapes falling into a heap | UIKit Dynamics — gravity, collision, elasticity and rotation, with the struct boundary on both sides at once |
-| `attractor` | a strange attractor you can drag | `drawRect:` in Lisp, gestures, trampolines, and redefining the mathematics over SLY |
+| `physics` | shapes falling into a heap | UIKit Dynamics — gravity, collision, elasticity and rotation; a `CGRect` in and a `CGPoint` out, by value, with no C |
+| `attractor` | a strange attractor you can drag | `drawRect:` in Lisp, gestures, a C trampoline kept on purpose, and redefining the mathematics over SLY |
 | `abi-probe` | a report, not an interface | exactly which structs `si:call-cfun` can carry, measured |
 | `closure-probe` | a report, not an interface | whether `si:make-dynamic-callback` works on a phone — measured on an iPhone 16e: it does, once ECL hands out the entry point rather than the closure record |
 
@@ -92,74 +92,52 @@ Build any of them with `asdf:make`, with `examples/` on your source registry:
 (ios-app:run-in-simulator "browser")
 ```
 
-**Five of them need no C compiler at build time and no `:bundle-trampolines`.**
-That surprises people, and it is worth saying why: the ECL compiler handles
-`ffi:defcallback` itself and emits an ordinary C function, so an Objective-C
-class whose methods are Lisp costs nothing extra — *as long as every argument
-and the return value is a scalar or a pointer*. `UITableViewDataSource` is
-`NSInteger` and `id` throughout, and so is most of Core Animation — even Core
-Graphics' path API, whose `CGAffineTransform` argument is a *pointer* to a
-struct rather than one by value.
+**All but one need no C compiler at build time and no `:bundle-trampolines`.**
+A message send is `objc:invoke`, a class whose methods are Lisp is
+`objc:define-objc-class`, and structures go by value in both directions — a
+`UITableViewDataSource`, a `CGRect` to `-initWithFrame:`, a `CGPoint` back
+from `-locationInView:` — all through ECL's dynamic FFI, on the phone, with
+nothing compiled by a C compiler. That takes the ECL that `bootstrap-ecl`
+builds; see [The ECL it builds](#the-ecl-it-builds).
 
-The two that do need a trampoline show why. `drawRect:` receives a `CGRect` by
-value, and `-locationInView:` *returns* a `CGPoint` — and `physics/glue.lisp`,
-at eight lines, is what the escape hatch looks like when you need it for
-exactly two functions.
+`attractor` is the one that keeps a trampoline file, and it keeps it by choice
+rather than necessity: its `drawRect:` calls CoreGraphics two million times a
+frame, which is a reasonable thing to have in C.
 
-### `objc-lite`
+### `objc` and `objc/uikit`
 
-Two files and about 250 lines, shared by `repl`, `browser` and `chart`. Without
-it each of them would open with the same forty lines of `si:call-cfun`
-boilerplate.
+The examples take [objc](https://github.com/lispnik/objc) as a dependency:
+put its directory and its `ocicl/` tree on your source registry beside
+`examples/`. `objc` is the whole LispWorks Objective-C interface — `invoke`,
+`define-objc-class`, `define-objc-method`, blocks from Lisp closures — and it
+runs on ECL on a phone exactly as it does on a Mac.
+
+`objc/uikit` is the dozen things every UIKit screen does, as a package
+`UIKIT`: a view with autoresizing translation off, a system button, the root
+view, colours and fonts, anchors pinned and fixed, and a Lisp function behind
+a control, a gesture recognizer or a timer.
 
 ```lisp
-(oc:send label "setText:" (oc:nsstr "hello"))
-(oc:pin label "centerXAnchor" view "centerXAnchor")
-(oc:define-class "LispTableSource" "NSObject"
-  (list (list "tableView:numberOfRowsInSection:" (ffi:callback 'rows) "q@:@q")))
+(objc:invoke label "setText:" "hello")
+(ui:pin label "centerXAnchor" view "centerXAnchor")
+(ui:on-tap (ui:system-button "again") (lambda (sender) (restart-animations)))
+
+(objc:define-objc-method ("tableView:numberOfRowsInSection:" (:signed :long-long))
+    ((self table-source) (table objc:objc-object-pointer) (section (:signed :long-long)))
+  (length (rows)))
 ```
 
-Underneath it is `objc_msgSend`, `sel_registerName`, `objc_getClass`,
-`objc_allocateClassPair` and `class_addMethod`, reached through the dynamic FFI,
-with memoised classes and selectors, argument types inferred from the values,
-and `oc:retain` for the objects UIKit holds only weakly — a delegate, a data
-source, a target.
+It works **compiled and interpreted alike**, so an interface can be built a
+form at a time at a remote REPL; and because the dynamic FFI now carries a
+structure, `-bounds`, `-frame` and `-setFrame:` are ordinary sends.
 
-Two things follow from having no C in it. It works **compiled and interpreted
-alike**, so an interface can be built a form at a time at a remote REPL. And it
-inherits exactly one limitation, the one `abi-probe` measures: **no message it
-sends may take or return a struct by value.** `-bounds`, `-frame` and
-`-setFrame:` are unreachable. In practice that costs less than it sounds,
-because an anchor is an object and a constraint's constant is a `CGFloat` — a
-whole interface can be built without ever naming a rectangle, which is what
-those three examples do.
-
-It is deliberately **not** part of `asdf-ios-app`. The real interface is the
-`objc` library; this is what you would write in an afternoon rather than take a
-dependency. `hello` does not use it either, open-coding the six lines it needs
-so that the minimal example stays minimal.
-
-A few things learned writing them, since each cost more than it should have:
-
-- **A `BOOL` callback returns `:byte`, not `:char`.** Same width, different
-  thing: ECL's `:char` is a Lisp `character`, so returning `0` fails inside
-  `char-code`.
-- **`-[UIButton init]` gives the *custom* type**, whose title colour is white.
-  On a white background that is indistinguishable from a button that failed to
-  appear. `oc:system-button` exists for this reason.
-- **`init` often avoids a struct.** `-[UITableView initWithFrame:style:]` and
-  `-[WKWebView initWithFrame:configuration:]` both want a `CGRect`; plain
-  `-init` does not, and gives the same defaults.
-- **Resolve framework symbols lazily.** A `defvar` calling
-  `si:find-foreign-symbol` runs during the child's *native* pass too, on the
-  Mac, where the app's frameworks are not linked — so a CoreGraphics symbol
-  fails the build before ever reaching the phone. `oc:foreign` defers it.
-- **`:cstring` demands a `base-string`.** A Lisp string containing `θ` fails
-  with *Cannot coerce string … to a base-string* rather than arriving mangled,
-  so `oc:nsstr` encodes to UTF-8 octets first.
-- **An entry point that signals now shows the condition on screen.** There is no
-  terminal behind an app, and a blank white window is the least useful thing a
-  toolkit can hand you. It found two of the bugs in this list.
+There used to be an `objc-lite` here — three hundred lines of `si:call-cfun`
+over `objc_msgSend`, with the rule that no message may take or return a
+struct by value, because ECL's foreign type table could not name one. That
+rule came from the ECL of the time and not from the platform, and once the
+table was opened there was no reason to keep a second, smaller bridge. `hello`
+still open-codes the six lines it needs, so that the minimal example stays
+minimal.
 
 ## Getting a toolchain
 

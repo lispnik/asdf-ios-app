@@ -5,13 +5,12 @@
 ;;;; whose methods are Lisp functions, and the rows are whatever the image
 ;;;; happens to contain -- so the app is browsing itself.
 ;;;;
-;;;; Every signature involved is NSInteger and id, which is why this needs no
-;;;; C compiler at build time. The one place a struct would have appeared,
-;;;; -[UITableView initWithFrame:style:], is avoided by using -init.
+;;;; The methods are libffi closures objc makes at run time, on the phone: no
+;;;; C compiler at build time, and no trampoline file.
 
 (defpackage #:browser
   (:use #:cl)
-  (:local-nicknames (#:oc #:objc-lite))
+  (:local-nicknames (#:ui #:uikit))
   (:export #:start))
 
 (in-package #:browser)
@@ -85,7 +84,7 @@ is.")
 
 (defun uiop-lines (string)
   "STRING split on newlines. Spelled out rather than pulled from UIOP, because
-this example deliberately depends on nothing but objc-lite."
+this example deliberately depends on nothing but objc."
   (loop with start = 0
         for position = (position #\Newline string :start start)
         collect (subseq string start position)
@@ -130,15 +129,16 @@ this example deliberately depends on nothing but objc-lite."
   (values))
 
 (defun refresh ()
-  (oc:send *title* "setText:" (oc:nsstr (level-title (current-level))))
-  (oc:send *back* "setHidden:" (if (rest *stack*) 0 1))
-  (oc:send *table* "reloadData"))
+  (objc:invoke *title* "setText:" (level-title (current-level)))
+  (objc:invoke *back* "setHidden:" (not (rest *stack*)))
+  (objc:invoke *table* "reloadData"))
 
 ;;; ------------------------------------------------------------------
 ;;; the data source
 ;;;
-;;; Three methods, three Lisp functions. The Objective-C type encodings say
-;;; what each one is: q is NSInteger, @ an object, : a selector, v void.
+;;; Three methods, three Lisp bodies, on an Objective-C class defined here.
+;;; The type descriptors say what each one is to the runtime: NSInteger is
+;;; (:signed :long-long), an object is objc:objc-object-pointer.
 ;;;
 ;;; Nothing here may signal. The caller is UIKit, and a condition unwinding
 ;;; through its frame corrupts it -- so each one ends in a value UIKit can
@@ -148,100 +148,93 @@ this example deliberately depends on nothing but objc-lite."
   (let ((rows (level-rows (current-level))))
     (and (< -1 index (length rows)) (nth index rows))))
 
-(ffi:defcallback rows-in-section :long
-    ((self :pointer-void) (cmd :pointer-void)
-     (table :pointer-void) (section :long))
-  (declare (ignore self cmd table section))
+(objc:define-objc-class table-source ()
+  ()
+  (:objc-class-name "LispTableSource"))
+
+(objc:define-objc-method ("tableView:numberOfRowsInSection:" (:signed :long-long))
+    ((self table-source) (table objc:objc-object-pointer) (section (:signed :long-long)))
+  (declare (ignore table section))
   (handler-case (length (level-rows (current-level)))
     (serious-condition () 0)))
 
-(ffi:defcallback cell-for-row :pointer-void
-    ((self :pointer-void) (cmd :pointer-void)
-     (table :pointer-void) (index-path :pointer-void))
-  (declare (ignore self cmd))
+(objc:define-objc-method ("tableView:cellForRowAtIndexPath:" objc:objc-object-pointer)
+    ((self table-source) (table objc:objc-object-pointer) (index-path objc:objc-object-pointer))
   (handler-case
-      (let* ((identifier (oc:nsstr "row"))
-             (cell (oc:send table "dequeueReusableCellWithIdentifier:" identifier))
-             (row (safe-row (oc:send-long index-path "row"))))
-        (when (or (null cell) (si:null-pointer-p cell))
+      (let* ((cell (objc:invoke table "dequeueReusableCellWithIdentifier:" "row"))
+             (row (safe-row (objc:invoke index-path "row"))))
+        (when (cffi:null-pointer-p cell)
           ;; Style 3 is Subtitle: two labels, which is what a name and what it
           ;; is want.
-          (setf cell (oc:send (oc:send (oc:cls "UITableViewCell") "alloc")
-                              "initWithStyle:reuseIdentifier:" 3 identifier)))
-        (oc:send (oc:send cell "textLabel") "setText:"
-                 (oc:nsstr (if row (row-title row) "")))
-        (oc:send (oc:send cell "detailTextLabel") "setText:"
-                 (oc:nsstr (if row (row-subtitle row) "")))
-        (oc:send (oc:send cell "detailTextLabel") "setFont:" (oc:mono-font 12))
+          (setf cell (objc:invoke (objc:invoke "UITableViewCell" "alloc")
+                                  "initWithStyle:reuseIdentifier:" 3 "row")))
+        (objc:invoke (objc:invoke cell "textLabel") "setText:"
+                     (if row (row-title row) ""))
+        (objc:invoke (objc:invoke cell "detailTextLabel") "setText:"
+                     (if row (row-subtitle row) ""))
+        (objc:invoke (objc:invoke cell "detailTextLabel") "setFont:" (ui:mono-font 12))
         ;; A chevron only where there is somewhere to go.
-        (oc:send cell "setAccessoryType:" (if (and row (row-descend row)) 1 0))
+        (objc:invoke cell "setAccessoryType:" (if (and row (row-descend row)) 1 0))
         cell)
     (serious-condition ()
       ;; An empty cell is a bad row; no cell at all is a crash.
-      (oc:send (oc:send (oc:cls "UITableViewCell") "alloc")
-               "initWithStyle:reuseIdentifier:" 0 (oc:nsstr "row")))))
+      (objc:invoke (objc:invoke "UITableViewCell" "alloc")
+                   "initWithStyle:reuseIdentifier:" 0 "row"))))
 
-(ffi:defcallback did-select-row :void
-    ((self :pointer-void) (cmd :pointer-void)
-     (table :pointer-void) (index-path :pointer-void))
-  (declare (ignore self cmd))
+(objc:define-objc-method ("tableView:didSelectRowAtIndexPath:" :void)
+    ((self table-source) (table objc:objc-object-pointer) (index-path objc:objc-object-pointer))
   (handler-case
-      (let ((row (safe-row (oc:send-long index-path "row"))))
-        (oc:send table "deselectRowAtIndexPath:animated:" index-path 1)
+      (let ((row (safe-row (objc:invoke index-path "row"))))
+        (objc:invoke table "deselectRowAtIndexPath:animated:" index-path t)
         (when (and row (row-descend row))
           (show (funcall (row-descend row)))))
     (serious-condition () nil))
   (values))
 
 (defun install-data-source (table)
-  (let* ((class (oc:define-class "LispTableSource" "NSObject"
-                  (list (list "tableView:numberOfRowsInSection:"
-                              (ffi:callback 'rows-in-section) "q@:@q")
-                        (list "tableView:cellForRowAtIndexPath:"
-                              (ffi:callback 'cell-for-row) "@@:@@")
-                        (list "tableView:didSelectRowAtIndexPath:"
-                              (ffi:callback 'did-select-row) "v@:@@"))))
-         ;; A table view holds both of these weakly.
-         (source (oc:retain (oc:send (oc:send class "alloc") "init"))))
-    (oc:send table "setDataSource:" source)
-    (oc:send table "setDelegate:" source)
+  ;; A table view holds both of these weakly.
+  (let* ((source (ui:keep (make-instance 'table-source)))
+         (pointer (objc:objc-object-pointer source)))
+    (objc:invoke table "setDataSource:" pointer)
+    (objc:invoke table "setDelegate:" pointer)
     source))
 
 ;;; ------------------------------------------------------------------
 ;;; the interface
 
 (defun build-interface ()
-  (let* ((root (oc:root-view))
-         (safe (oc:send root "safeAreaLayoutGuide"))
-         (title (oc:new "UILabel"))
-         (back (oc:system-button "< Back"))
-         (table (oc:new "UITableView")))
+  (let* ((root (ui:root-view))
+         (safe (objc:invoke root "safeAreaLayoutGuide"))
+         (title (ui:new "UILabel"))
+         (back (ui:system-button "< Back"))
+         (table (ui:new "UITableView")))
 
-    (oc:send root "setBackgroundColor:" (oc:system-color "systemBackground"))
+    (objc:invoke root "setBackgroundColor:" (ui:system-color "systemBackground"))
 
-    (oc:send title "setFont:" (oc:send (oc:cls "UIFont") "boldSystemFontOfSize:" 22d0))
-    (oc:send root "addSubview:" title)
+    (objc:invoke title "setFont:" (ui:bold-font 22))
+    (objc:invoke root "addSubview:" title)
 
-    (oc:send back "setHidden:" 1)
-    (oc:on-tap back "(browser::go-back)")
-    (oc:send root "addSubview:" back)
+    (objc:invoke back "setHidden:" t)
+    (ui:on-tap back (lambda (sender) (declare (ignore sender)) (go-back)))
+    (objc:invoke root "addSubview:" back)
 
-    (oc:send root "addSubview:" table)
+    (objc:invoke root "addSubview:" table)
 
-    (oc:pin title "topAnchor" safe "topAnchor" 10)
-    (oc:pin title "leadingAnchor" safe "leadingAnchor" 16)
-    (oc:pin back "centerYAnchor" title "centerYAnchor")
-    (oc:pin back "trailingAnchor" safe "trailingAnchor" -16)
-    (oc:pin table "topAnchor" title "bottomAnchor" 10)
-    (oc:pin table "leadingAnchor" safe "leadingAnchor")
-    (oc:pin table "trailingAnchor" safe "trailingAnchor")
-    (oc:pin table "bottomAnchor" safe "bottomAnchor")
+    (ui:pin title "topAnchor" safe "topAnchor" 10)
+    (ui:pin title "leadingAnchor" safe "leadingAnchor" 16)
+    (ui:pin back "centerYAnchor" title "centerYAnchor")
+    (ui:pin back "trailingAnchor" safe "trailingAnchor" -16)
+    (ui:pin table "topAnchor" title "bottomAnchor" 10)
+    (ui:pin table "leadingAnchor" safe "leadingAnchor")
+    (ui:pin table "trailingAnchor" safe "trailingAnchor")
+    (ui:pin table "bottomAnchor" safe "bottomAnchor")
 
     (setf *table* table *title* title *back* back)
     (install-data-source table)
     (values)))
 
 (defun start ()
+  (objc:ensure-objc-initialized)
   (build-interface)
   (setf *stack* '())
   (show (packages-level))
@@ -265,29 +258,28 @@ this example deliberately depends on nothing but objc-lite."
   (position title (level-rows (current-level)) :key #'row-title :test #'string=))
 
 (defun tap-row (index)
-  (let ((path (oc:send (oc:cls "NSIndexPath") "indexPathForRow:inSection:" index 0))
-        (source (oc:send *table* "delegate")))
-    (oc:send source "tableView:didSelectRowAtIndexPath:" *table* path)))
+  (let ((path (objc:invoke "NSIndexPath" "indexPathForRow:inSection:" index 0))
+        (source (objc:invoke *table* "delegate")))
+    (objc:invoke source "tableView:didSelectRowAtIndexPath:" *table* path)))
 
 (defun scroll-to-row (index &key (position 1))
   "Scroll INDEX into view. POSITION 1 is UITableViewScrollPositionTop.
 
 -scrollToRowAtIndexPath:atScrollPosition:animated: is NSIndexPath, NSInteger,
-BOOL -- every argument a pointer or a scalar, so the animated scroll is
-reachable from Lisp with no C anywhere."
+BOOL."
   (let ((rows (length (level-rows (current-level)))))
     (when (< -1 index rows)
-      (oc:send *table* "scrollToRowAtIndexPath:atScrollPosition:animated:"
-               (oc:send (oc:cls "NSIndexPath") "indexPathForRow:inSection:" index 0)
-               position 1))))
+      (objc:invoke *table* "scrollToRowAtIndexPath:atScrollPosition:animated:"
+                   (objc:invoke "NSIndexPath" "indexPathForRow:inSection:" index 0)
+                   position t))))
 
 (defun highlight-row (index)
   "Select INDEX the way a finger would, so the row flashes before it acts."
   (let ((rows (length (level-rows (current-level)))))
     (when (< -1 index rows)
-      (oc:send *table* "selectRowAtIndexPath:animated:scrollPosition:"
-               (oc:send (oc:cls "NSIndexPath") "indexPathForRow:inSection:" index 0)
-               1 0))))
+      (objc:invoke *table* "selectRowAtIndexPath:animated:scrollPosition:"
+                   (objc:invoke "NSIndexPath" "indexPathForRow:inSection:" index 0)
+                   t 0))))
 
 (defun demonstrate-selection ()
   "The original two-step check: drill into COMMON-LISP, then into DEFSTRUCT."
@@ -303,7 +295,7 @@ reachable from Lisp with no C anywhere."
 ;;;
 ;;; The same dispatch as above, spread over time so a person -- or a screen
 ;;; recorder -- can follow it. Steps are ordinary closures run by a repeating
-;;; NSTimer through LispTarget; NIL is a beat, which is how a pause is spelled.
+;;; NSTimer; NIL is a beat, which is how a pause is spelled.
 
 (defvar *tour* '())
 (defvar *tour-timer* nil)
@@ -332,17 +324,19 @@ reachable from Lisp with no C anywhere."
    (enter "MAPCAR")
    (list nil nil nil (lambda () (go-back)) nil
          (lambda () (go-back)) nil)
-   ;; The app's own package: the image is browsing the code that built it.
-   (enter "OBJC-LITE")
+   ;; The library the app is built on: the image is browsing the code that
+   ;; built it.
+   (enter "OBJC")
    (list nil)
-   (enter "SEND")
+   (enter "INVOKE")
    (list nil nil nil
          (lambda () (go-back)) nil
          (lambda () (go-back)) nil nil)))
 
 (defun stop-tour ()
   (when *tour-timer*
-    (oc:send *tour-timer* "invalidate")
+    (objc:invoke *tour-timer* "invalidate")
+    (ui:unkeep *tour-timer*)
     (setf *tour-timer* nil))
   (values))
 
@@ -358,14 +352,5 @@ reachable from Lisp with no C anywhere."
 
 (defun start-tour ()
   (setf *tour* (tour-steps))
-  (setf *tour-timer*
-        (oc:retain
-         (oc:send (oc:cls "NSTimer")
-                  "scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"
-                  0.9d0
-                  (oc:retain (oc:send (oc:cls "LispTarget") "targetWithForm:"
-                                      (oc:nsstr "(browser::tour-tick)")))
-                  (oc:sel "fire:")
-                  nil
-                  1)))
+  (setf *tour-timer* (ui:after-every 0.9 (lambda (timer) (declare (ignore timer)) (tour-tick))))
   (values))

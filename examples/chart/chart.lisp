@@ -13,7 +13,7 @@
 
 (defpackage #:chart
   (:use #:cl)
-  (:local-nicknames (#:oc #:objc-lite))
+  (:local-nicknames (#:ui #:uikit))
   (:export #:start #:choose))
 
 (in-package #:chart)
@@ -131,7 +131,7 @@
             (plusp (length *stylesheet*)))))
 
 (defun render ()
-  (oc:send *web-view* "loadHTMLString:baseURL:" (oc:nsstr (document)) nil))
+  (objc:invoke *web-view* "loadHTMLString:baseURL:" (document) nil))
 
 (defun choose (index)
   "Called from a button. Shows the curve and remembers it for next launch."
@@ -156,43 +156,46 @@
               ""))))
 
 (defun build-interface ()
-  (let* ((root (oc:root-view))
-         (safe (oc:send root "safeAreaLayoutGuide"))
-         (row (oc:new "UIStackView"))
-         (web (oc:new "WKWebView")))
+  (let* ((root (ui:root-view))
+         (safe (objc:invoke root "safeAreaLayoutGuide"))
+         (row (ui:new "UIStackView"))
+         (web (ui:new "WKWebView")))
 
-    (oc:send root "setBackgroundColor:" (oc:system-color "systemBackground"))
+    (objc:invoke root "setBackgroundColor:" (ui:system-color "systemBackground"))
 
-    (oc:send row "setSpacing:" 8d0)
-    (oc:send row "setDistribution:" 1)         ; FillEqually
+    (objc:invoke row "setSpacing:" 8d0)
+    (objc:invoke row "setDistribution:" 1)         ; FillEqually
     (setf *buttons*
           (loop for (name nil nil) in +curves+
                 for index from 0
-                collect (let ((button (oc:on-tap (oc:system-button name)
-                                                 (format nil "(chart:choose ~d)" index))))
-                          (oc:send row "addArrangedSubview:" button)
+                collect (let ((button (let ((index index))
+                                        (ui:on-tap (ui:system-button name)
+                                                   (lambda (sender)
+                                                     (declare (ignore sender))
+                                                     (choose index))))))
+                          (objc:invoke row "addArrangedSubview:" button)
                           button)))
-    (oc:send root "addSubview:" row)
+    (objc:invoke root "addSubview:" row)
 
-    ;; -[WKWebView init] rather than -initWithFrame:configuration:, which would
-    ;; have wanted a CGRect. The default configuration is what we want anyway.
-    (oc:send web "setOpaque:" 0)
-    (oc:send root "addSubview:" web)
+    ;; -[WKWebView init]: the default configuration is what we want.
+    (objc:invoke web "setOpaque:" 0)
+    (objc:invoke root "addSubview:" web)
 
-    (oc:pin row "topAnchor" safe "topAnchor" 6)
-    (oc:pin row "leadingAnchor" safe "leadingAnchor" 12)
-    (oc:pin row "trailingAnchor" safe "trailingAnchor" -12)
-    (oc:fix row "heightAnchor" 34)
+    (ui:pin row "topAnchor" safe "topAnchor" 6)
+    (ui:pin row "leadingAnchor" safe "leadingAnchor" 12)
+    (ui:pin row "trailingAnchor" safe "trailingAnchor" -12)
+    (ui:fix row "heightAnchor" 34)
 
-    (oc:pin web "topAnchor" row "bottomAnchor" 6)
-    (oc:pin web "leadingAnchor" safe "leadingAnchor")
-    (oc:pin web "trailingAnchor" safe "trailingAnchor")
-    (oc:pin web "bottomAnchor" safe "bottomAnchor")
+    (ui:pin web "topAnchor" row "bottomAnchor" 6)
+    (ui:pin web "leadingAnchor" safe "leadingAnchor")
+    (ui:pin web "trailingAnchor" safe "trailingAnchor")
+    (ui:pin web "bottomAnchor" safe "bottomAnchor")
 
     (setf *web-view* web)
     (values)))
 
 (defun start ()
+  (objc:ensure-objc-initialized)
   (read-stylesheet)
   (load-choice)
   (build-interface)
@@ -207,8 +210,8 @@
 ;;;
 ;;; simctl cannot inject a touch, so this walks the same path UIKit does: ask
 ;;; the button for its target, and send it the action selector. What it
-;;; reaches is LispTarget -- which asdf-ios-app ships, and which evaluates the
-;;; form the button was created with.
+;;; reaches is the UIKIT:ACTION-TARGET the button was created with, whose
+;;; fire: is the Lisp closure.
 ;;;
 ;;; Gated on an environment variable, so it is a way of testing the app rather
 ;;; than part of it:
@@ -217,5 +220,5 @@
 (defun tap-button (index)
   (let ((button (nth (or index 0) *buttons*)))
     (when button
-      (let ((target (oc:send (oc:send button "allTargets") "anyObject")))
-        (oc:send target "fire:" button)))))
+      (let ((target (objc:invoke (objc:invoke button "allTargets") "anyObject")))
+        (objc:invoke target "fire:" button)))))

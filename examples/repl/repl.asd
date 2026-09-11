@@ -8,7 +8,7 @@
   :description "A REPL you type into, with a UITextFieldDelegate written in Lisp."
   :version "1.0.0"
   :serial t
-  :depends-on ("objc-lite")
+  :depends-on ("objc/uikit")
   :components ((:file "repl"))
 
   :bundle-identifier "org.asdf-ios-app.repl"
