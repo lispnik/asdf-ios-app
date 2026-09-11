@@ -28,8 +28,9 @@ Your Lisp is cross-compiled to native arm64 and linked in. It is *not* frozen by
 that: `defun`, `defclass` and `defmethod` all work at run time, because the boot
 installs the bytecodes compiler.
 
-`examples/attractor/` is a `UIView` whose `drawRect:` is a Lisp function,
-drawing 300,000 points of a de Jong attractor. `examples/hello/` is the least
+`examples/attractor-aot/` is a `UIView` whose `drawRect:` is a Lisp function,
+drawing 300,000 points of a de Jong attractor; `examples/attractor-dynamic/`
+is the same figure with no C in the app at all. `examples/hello/` is the least
 you can write. There are more below.
 
 ## The examples
@@ -56,14 +57,14 @@ you can write. There are more below.
   <td><img src="doc/screenshots/physics.png" width="210" alt="Coloured squares and circles falling and settling into a heap at the bottom of a dark screen."></td>
 </tr>
 <tr>
-  <th align="center">attractor</th>
+  <th align="center">attractor-aot</th>
+  <th align="center">attractor-dynamic</th>
   <th align="center">abi-probe</th>
-  <th></th>
 </tr>
 <tr>
-  <td><img src="doc/screenshots/attractor.png" width="210" alt="A de Jong strange attractor in pale blue on black, filling the screen."></td>
+  <td><img src="doc/screenshots/attractor-aot.png" width="210" alt="A de Jong strange attractor in pale blue on black, filling the screen."></td>
+  <td><img src="doc/screenshots/attractor-dynamic.png" width="210" alt="The same attractor, rendered from a Lisp array into one image, with no C in the app."></td>
   <td><img src="doc/screenshots/abi-probe.png" width="210" alt="A dense monospaced report comparing si:call-cfun against the C compiler."></td>
-  <td></td>
 </tr>
 </table>
 
@@ -81,8 +82,8 @@ interface, and its `objc/uikit` conveniences — see below.
 | `chart` | SVG in a `WKWebView` | a framework beyond UIKit, a bundled resource, and state that survives a relaunch |
 | `layers` | a rose curve drawing itself | Core Animation — a `CGPath` computed in Lisp, stroked by a `CAShapeLayer`, with a dot riding the tip |
 | `physics` | shapes falling into a heap | UIKit Dynamics — gravity, collision, elasticity and rotation; a `CGRect` in and a `CGPoint` out, by value, with no C |
-| `attractor` | a strange attractor you can drag | `drawRect:` in Lisp, gestures, a C trampoline kept on purpose, and redefining the mathematics over SLY |
-| `attractor-lisp` | the same attractor, with no C at all | `drawRect:` as a Lisp method taking its `CGRect` by value, the frame rendered into a Lisp array and shown as one `CGImage`, and the gestures reaching closures |
+| `attractor-aot` | a strange attractor you can drag | `drawRect:` in Lisp, gestures, a C trampoline compiled ahead of time and kept on purpose, and redefining the mathematics over SLY |
+| `attractor-dynamic` | the same attractor, with no C at all | `drawRect:` as a Lisp method taking its `CGRect` by value, the frame rendered into a Lisp array and shown as one `CGImage`, and the gestures reaching closures |
 | `abi-probe` | a report, not an interface | exactly which structs `si:call-cfun` can carry, measured |
 | `closure-probe` | a report, not an interface | what ECL's dynamic FFI can do on a phone, measured on an iPhone 16e: a libffi closure, a `CGRect` in and an `NSRange` out through one, and a variadic call |
 
@@ -101,10 +102,10 @@ from `-locationInView:` — all through ECL's dynamic FFI, on the phone, with
 nothing compiled by a C compiler. That takes the ECL that `bootstrap-ecl`
 builds; see [The ECL it builds](#the-ecl-it-builds).
 
-`attractor` is the one that keeps a trampoline file, and it keeps it by choice
-rather than necessity: its `drawRect:` calls CoreGraphics two million times a
-frame, which is a reasonable thing to have in C. `attractor-lisp` is the same
-figure without it, and shows the other way to do a hot loop: not two million
+`attractor-aot` is the one that keeps a trampoline file, and it keeps it by
+choice rather than necessity: its `drawRect:` calls CoreGraphics two million
+times a frame, which is a reasonable thing to have in C. `attractor-dynamic` is
+the same figure without it, and shows the other way to do a hot loop: not two million
 foreign calls from Lisp, but the frame rendered into a Lisp array and handed
 to CoreGraphics as one image. The two are meant to be read side by side.
 
@@ -450,7 +451,7 @@ CL-USER> (with-main-thread (say "Hello from SLY"))   ; a label appears on screen
 ```
 
 Redefining a function that was cross-compiled works too: the new definition is
-bytecode and replaces the `fdefinition`. `examples/attractor/` is built around
+bytecode and replaces the `fdefinition`. `examples/attractor-aot/` is built around
 that -- redefine `step-point` at a SLY prompt and the phone draws different
 mathematics on the next frame, with nothing rebuilt.
 
@@ -479,7 +480,7 @@ exactly one `.appiconset`, and its name is read rather than assumed to be
 `AppIcon` -- a set called something else compiles to an `Assets.car` with no
 icon in it, silently.
 
-`examples/attractor/make-icon.py` writes a catalogue from scratch with the
+`examples/attractor-aot/make-icon.py` writes a catalogue from scratch with the
 standard library alone, by iterating the attractor at 1024x1024. It is a
 reasonable starting point if you have artwork but no Xcode.
 

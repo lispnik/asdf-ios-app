@@ -10,7 +10,7 @@
 ;;;; afterwards. At run time the trampoline module initialises last and its
 ;;;; definitions are the ones that stand.
 
-(defpackage #:attractor-glue
+(defpackage #:attractor-aot-glue
   (:use #:cl)
   (:export #:install-view-class #:make-view #:set-root-view #:draw-points
            #:view-bounds

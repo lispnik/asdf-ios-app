@@ -13,7 +13,7 @@
 ;;; The package itself is declared in glue-package.lisp, an ordinary component,
 ;;; because this file is never compiled on the host and ordinary sources are.
 
-(in-package #:attractor-glue)
+(in-package #:attractor-aot-glue)
 
 (ffi:clines "
 #include <objc/runtime.h>
@@ -30,7 +30,7 @@ extern CGContextRef UIGraphicsGetCurrentContext(void);
    method could not exist without a C compiler at build time. */
 static void attractor_draw_rect(id self, SEL cmd, CGRect rect)
 {
-  cl_object fn = ecl_make_symbol(\"DRAW\", \"ATTRACTOR\");
+  cl_object fn = ecl_make_symbol(\"DRAW\", \"ATTRACTOR-AOT\");
   if (fn != ECL_NIL && (fn->symbol.gfdef != OBJNULL)) {
     /* si_safe_eval-style safety matters here: a Lisp condition unwinding
        through UIKit's frame would corrupt it. cl_funcall does not offer that,

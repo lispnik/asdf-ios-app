@@ -1,16 +1,16 @@
-;;;; attractor.lisp -- the mathematics, and where it stays editable.
+;;;; attractor-aot.lisp -- the mathematics, and where it stays editable.
 ;;;;
 ;;;; Everything here is ordinary Lisp, cross-compiled to native arm64. None of
 ;;;; it needs a C compiler at run time, and all of it can be redefined at run
 ;;;; time -- boot installs the bytecodes compiler, so a new DEFUN replaces a
 ;;;; compiled one with bytecode and the next redraw picks it up.
 
-(defpackage #:attractor
+(defpackage #:attractor-aot
   (:use #:cl)
   (:export #:start #:draw #:step-point #:redraw #:parameters
            #:*a* #:*b* #:*c* #:*d* #:*points*))
 
-(in-package #:attractor)
+(in-package #:attractor-aot)
 
 (defparameter *a* 1.4d0)
 (defparameter *b* -2.3d0)
@@ -92,7 +92,7 @@ it, and cl_funcall offers no protection, so the handler is here."
       (let ((buffer (fill-buffer width height)))
         ;; Alpha well below 1 so density accumulates: the attractor's structure
         ;; is in how often a region is visited, not in any single point.
-        (attractor-glue:draw-points buffer *points*
+        (attractor-aot-glue:draw-points buffer *points*
                                     0.35d0 0.85d0 1.0d0   ; a cold blue-white
                                     0.30d0                 ; alpha
                                     1.0d0))                ; point size
@@ -107,7 +107,7 @@ it, and cl_funcall offers no protection, so the handler is here."
 (defun redraw ()
   "Ask for a new frame. Safe to call from a REPL through ON-MAIN."
   (when *view*
-    (attractor-glue:set-needs-display *view*)))
+    (attractor-aot-glue:set-needs-display *view*)))
 
 (defun parameters ()
   (list :a *a* :b *b* :c *c* :d *d*))
@@ -121,8 +121,8 @@ it, and cl_funcall offers no protection, so the handler is here."
 (defun on-pan ()
   "Drag to move A and B. Reported as a delta: the translation is zeroed here."
   (when *pan*
-    (let ((delta (attractor-glue:pan-translation *pan* *view*)))
-      (attractor-glue:reset-pan-translation *pan* *view*)
+    (let ((delta (attractor-aot-glue:pan-translation *pan* *view*)))
+      (attractor-aot-glue:reset-pan-translation *pan* *view*)
       ;; Small enough that a full swipe is a tour of the parameter space rather
       ;; than a jump across it.
       (incf *a* (* (car delta) 0.004d0))
@@ -133,19 +133,19 @@ it, and cl_funcall offers no protection, so the handler is here."
   "Pinch to move C and D, in opposite directions -- it makes the figure open
 out rather than merely swell."
   (when *pinch*
-    (let ((delta (- (attractor-glue:pinch-scale *pinch*) 1.0d0)))
-      (attractor-glue:reset-pinch-scale *pinch*)
+    (let ((delta (- (attractor-aot-glue:pinch-scale *pinch*) 1.0d0)))
+      (attractor-aot-glue:reset-pinch-scale *pinch*)
       (incf *c* (* delta 1.5d0))
       (decf *d* (* delta 1.5d0))
       (redraw))))
 
 (defun install-gestures ()
-  (setf *pan* (attractor-glue:add-recognizer
-               *view* "UIPanGestureRecognizer" "(attractor::on-pan)"))
-  (setf *pinch* (attractor-glue:add-recognizer
-                 *view* "UIPinchGestureRecognizer" "(attractor::on-pinch)"))
-  (attractor-glue:attach-recognizer *view* *pan*)
-  (attractor-glue:attach-recognizer *view* *pinch*))
+  (setf *pan* (attractor-aot-glue:add-recognizer
+               *view* "UIPanGestureRecognizer" "(attractor-aot::on-pan)"))
+  (setf *pinch* (attractor-aot-glue:add-recognizer
+                 *view* "UIPinchGestureRecognizer" "(attractor-aot::on-pinch)"))
+  (attractor-aot-glue:attach-recognizer *view* *pan*)
+  (attractor-aot-glue:attach-recognizer *view* *pinch*))
 
 (defun start ()
   "Entry point. Runs on the main thread and must return: the run loop follows."
@@ -153,11 +153,11 @@ out rather than merely swell."
           (lisp-implementation-type) (lisp-implementation-version))
   ;; "returns void; self, _cmd, CGRect". The @ has to live here rather than in
   ;; the C, because C-INLINE reads @ as the start of its own syntax.
-  (attractor-glue:install-view-class "v@:{CGRect={CGPoint=dd}{CGSize=dd}}")
-  (setf *view* (attractor-glue:make-view))
-  (attractor-glue:set-root-view *view*)
+  (attractor-aot-glue:install-view-class "v@:{CGRect={CGPoint=dd}{CGSize=dd}}")
+  (setf *view* (attractor-aot-glue:make-view))
+  (attractor-aot-glue:set-root-view *view*)
   (install-gestures)
-  (let ((bounds (attractor-glue:view-bounds *view*)))
+  (let ((bounds (attractor-aot-glue:view-bounds *view*)))
     (format t "ATTRACTOR: view is ~ax~a, ~d points~%"
             (round (car bounds)) (round (cdr bounds)) *points*))
   (format t "ATTRACTOR: drag for A and B, pinch for C and D.~%")

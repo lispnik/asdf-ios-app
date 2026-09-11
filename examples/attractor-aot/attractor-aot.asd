@@ -1,10 +1,11 @@
-;;;; attractor.asd -- a de Jong attractor, drawn by Lisp, on a phone.
+;;;; attractor-aot.asd -- a de Jong attractor, drawn by Lisp, on a phone, with
+;;;; its hot loop and its drawRect: IMP compiled ahead of time, in C.
 
-(defsystem "attractor"
+(defsystem "attractor-aot"
   :defsystem-depends-on ("asdf-ios-app")
   :class :ios-app-system
   :build-operation "ios-app-op"
-  :entry-point "attractor:start"
+  :entry-point "attractor-aot:start"
   :description "Two million points of arithmetic, and a view whose drawRect: is Lisp."
   :version "1.0.0"
   :serial t
@@ -14,11 +15,11 @@
   ;; works the same.
   :depends-on ("slynk")
   :components ((:file "glue-package")
-               (:file "attractor"))
+               (:file "attractor-aot"))
 
-  :bundle-identifier "org.asdf-ios-app.attractor"
-  :bundle-name "Attractor"
-  :bundle-executable "attractor"
+  :bundle-identifier "org.asdf-ios-app.attractor-aot"
+  :bundle-name "AttractorAOT"
+  :bundle-executable "attractor-aot"
   :bundle-platforms (:simulator)
   :bundle-orientations (:portrait :landscape-left :landscape-right)
 
@@ -30,7 +31,8 @@
   ;; The C side. Cross-compiled only, which is what lets it use FFI:C-INLINE.
   ;; Written when a drawRect: IMP receiving a CGRect by value was out of reach
   ;; of ECL's dynamic FFI; it is not any more, and the other examples define
-  ;; such methods in Lisp through objc. This one keeps its C, because a
+  ;; such methods in Lisp through objc -- attractor-dynamic is this same figure
+  ;; that way. This one keeps its C, because a
   ;; drawRect: body that calls CoreGraphics two million times a frame is a
   ;; reasonable thing to have in C.
   :bundle-trampolines ("glue.lisp")

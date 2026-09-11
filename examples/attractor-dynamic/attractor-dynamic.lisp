@@ -1,6 +1,6 @@
-;;;; attractor-lisp.lisp -- the de Jong attractor, with no C anywhere.
+;;;; attractor-dynamic.lisp -- the de Jong attractor, with no C anywhere.
 ;;;;
-;;;; The sibling example, attractor, keeps a C file: its drawRect: IMP and the
+;;;; The sibling example, attractor-aot, keeps a C file: its drawRect: IMP and the
 ;;;; loop that issues two million CGContextFillRect calls. It was written when
 ;;;; a method taking a CGRect by value was out of reach of ECL's dynamic FFI,
 ;;;; and it keeps the C by choice, because that loop is a reasonable thing to
@@ -19,13 +19,13 @@
 ;;;; in compiled Lisp and six foreign calls, where the C version costs two
 ;;;; million foreign calls' worth of fill rectangles.
 
-(defpackage #:attractor-lisp
+(defpackage #:attractor-dynamic
   (:use #:cl)
   (:local-nicknames (#:ui #:uikit))
   (:export #:start #:redraw #:step-point #:parameters
            #:*a* #:*b* #:*c* #:*d* #:*points*))
 
-(in-package #:attractor-lisp)
+(in-package #:attractor-dynamic)
 
 (defparameter *a* 1.4d0)
 (defparameter *b* -2.3d0)
@@ -88,8 +88,12 @@ ECL compiles a call to a function in the same file as a direct C call."
     (declare (fixnum n) (double-float a b c d sx sy cx cy x y))
     (dotimes (i n)
       (multiple-value-setq (x y) (step-point x y a b c d))
+      ;; Row 0 of the image is drawn at the BOTTOM of a UIKit view --
+      ;; CGContextDrawImage works in CoreGraphics' upward coordinates -- so
+      ;; the row is flipped here to keep the figure the way attractor-aot
+      ;; draws it.
       (let ((px (floor (+ cx (* x sx))))
-            (py (floor (+ cy (* y sy)))))
+            (py (- (1- height) (floor (+ cy (* y sy))))))
         (declare (fixnum px py))
         (when (and (<= 0 px) (< px width) (<= 0 py) (< py height))
           (let* ((i (+ px (* py width)))
@@ -202,7 +206,7 @@ as long as the array does -- and *PIXELS* holds it."
 
 (objc:define-objc-class attractor-view ()
   ()
-  (:objc-class-name "AttractorLispView")
+  (:objc-class-name "AttractorDynamicView")
   (:objc-superclass-name "UIView"))
 
 (objc:define-objc-method ("drawRect:" :void)
