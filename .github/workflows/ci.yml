@@ -17,18 +17,17 @@
 # BOOTSTRAP-ECL applies it to the cross-built prefixes itself, from
 # tools/patches/.
 #
-# What this does not cover, and it is the interesting half.  Ten tests build a
-# real bundle and skip without a cross-built ECL; one of those installs it on a
-# booted simulator and reads back what Lisp says. Between them they carry 22 of
-# the suite's 177 checks -- the compile, link, sign, package and launch path,
-# which is to say most of what this system is for.
+# Two jobs.  The first is the host-side suite: seconds, no toolchain, and it
+# covers everything but the part this system is for.  The second is that part:
+# it has BOOTSTRAP-ECL cross-build ECL for the simulator -- a host ECL from the
+# same tree first, because the cross build reuses its dpp and ecl_min -- boots
+# a simulator, and runs the whole suite, including the ten tests that compile,
+# link, sign, package and launch a real bundle.  Cold that is twenty minutes;
+# the prefixes are cached by the ECL commit they were built from, so it is
+# twenty minutes once per ECL revision and a few minutes otherwise.
 #
-# Covering them needs (asdf-ios-app:bootstrap-ecl) to cross-build two ECL
-# prefixes, device and simulator. That is a twenty-minute job cold, cacheable by
-# ECL revision afterwards, and then `xcrun simctl boot` plus
-# ASDF_IOS_APP_SIMULATOR_TESTS=1. It is deferred rather than forgotten: the 155
-# checks below are worth protecting today, and a second job can be added to this
-# file without disturbing them.
+# The device is not built for.  Signing needs an identity and a profile a
+# runner does not have, and there is no phone on the other end of it.
 
 name: CI
 
@@ -55,7 +54,7 @@ jobs:
 
       - name: Report the environment the tests will see
         # Which tests skip is decided entirely by TOOLCHAIN-AVAILABLE-P, so this
-        # is what says why the count below is 155 and not 177.
+        # is what says why the count in this job is 155 and not 177.
         run: |
           ecl --norc \
             --eval '(require :asdf)' \
@@ -79,5 +78,92 @@ jobs:
           ecl --norc \
             --eval '(require :asdf)' \
             --eval '(asdf:initialize-source-registry (list :source-registry (list :directory (uiop:getcwd)) (list :tree (merge-pathnames "examples/" (uiop:getcwd))) :inherit-configuration))' \
+            --eval '(asdf:test-system :asdf-ios-app)' \
+            --eval '(ext:quit 0)'
+
+  cross:
+    name: ecl · iphonesimulator (cross-built, cached)
+    runs-on: macos-latest
+    # Twenty minutes when the cache misses, of which the two ECL builds are
+    # nearly all; the suite itself, fixture app and simulator launch included,
+    # is under five.  Loose enough for a slow runner, tight enough that a
+    # hung build is a failure rather than a runner that went quiet.
+    timeout-minutes: 90
+    env:
+      ECL_REPOSITORY: https://github.com/lispnik/ecl.git
+      ECL_BRANCH: develop
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # The driver.  BOOTSTRAP-ECL is Lisp, in this system, and this system
+      # only loads under ECL -- so an ECL is needed to build the ECLs.  A stock
+      # one is fine for that: the RTLD_DEFAULT fix matters to the app on the
+      # phone, and the prefixes are built from the fork's develop, which has it.
+      - name: Install ECL, to drive the build
+        run: brew install ecl
+
+      - name: Resolve the ECL branch to a commit
+        id: ecl
+        run: |
+          sha=$(git ls-remote "$ECL_REPOSITORY" "refs/heads/$ECL_BRANCH" | cut -f1)
+          test -n "$sha" || { echo "::error::$ECL_REPOSITORY has no branch $ECL_BRANCH" >&2; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "$ECL_BRANCH is $sha"
+
+      # The prefixes and the record of where they are, and not the source
+      # tree or the build directories, which are most of a gigabyte and are
+      # only needed to make the prefixes.  The key carries the build script
+      # and the patches as well as the commit: any of the three changes what
+      # gets built.
+      - name: Cache the cross-built ECL
+        id: ecl-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/asdf-ios-app/ecl-ios/host
+            ~/.cache/asdf-ios-app/ecl-ios/iphonesimulator
+            ~/.cache/asdf-ios-app/toolchain.sexp
+          key: ecl-ios-${{ runner.os }}-${{ runner.arch }}-${{ steps.ecl.outputs.sha }}-${{ hashFiles('tools/build-ecl-ios.sh', 'tools/patches/*') }}
+
+      - name: Cross-build ECL for the simulator
+        if: steps.ecl-cache.outputs.cache-hit != 'true'
+        run: |
+          brew install automake autoconf libtool texinfo
+          ecl --norc \
+            --eval '(require :asdf)' \
+            --eval '(asdf:initialize-source-registry (list :source-registry (list :directory (uiop:getcwd)) :ignore-inherited-configuration))' \
+            --eval '(asdf:load-system :asdf-ios-app)' \
+            --eval '(asdf-ios-app:bootstrap-ecl :platforms (list :simulator))' \
+            --eval '(ext:quit 0)'
+
+      # The one test that launches the fixture wants a booted simulator and
+      # says so.  Any iPhone will do; the newest available runtime is taken so
+      # the choice does not go stale with the runner image.
+      - name: Boot a simulator
+        run: |
+          udid=$(xcrun simctl list devices available -j \
+                 | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for k in sorted(d, reverse=True) if "iOS" in k for x in d[k] if x["name"].startswith("iPhone")))')
+          echo "booting $udid"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl list devices booted
+
+      - name: Report the toolchain the tests will see
+        run: |
+          ecl --norc \
+            --eval '(require :asdf)' \
+            --eval '(asdf:initialize-source-registry (list :source-registry (list :directory (uiop:getcwd)) (list :tree (merge-pathnames "examples/" (uiop:getcwd))) :ignore-inherited-configuration))' \
+            --eval '(asdf:load-system :asdf-ios-app)' \
+            --eval '(asdf-ios-app:describe-toolchain)' \
+            --eval '(ext:quit)'
+
+      - name: Run tests, with the toolchain and a simulator
+        env:
+          ASDF_IOS_APP_SIMULATOR_TESTS: "1"
+        run: |
+          ecl --norc \
+            --eval '(require :asdf)' \
+            --eval '(asdf:initialize-source-registry (list :source-registry (list :directory (uiop:getcwd)) (list :tree (merge-pathnames "examples/" (uiop:getcwd))) :ignore-inherited-configuration))' \
             --eval '(asdf:test-system :asdf-ios-app)' \
             --eval '(ext:quit 0)'
