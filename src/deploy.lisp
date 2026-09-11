@@ -60,17 +60,34 @@ attribute and much slower to appear."
   (run (list "/usr/bin/xcrun" "simctl" "terminate" device identifier)
        :ignore-error-status t))
 
+(defun parse-device-listing (text)
+  "The identifiers of the devices in devicectl's table that can be reached now.
+
+A device that can be installed to reports itself as `available (paired)\'
+when it is on the network and `connected\' when it is on a cable; one that
+cannot says `unavailable\', which contains the first of those words and is
+why the test is not a substring search for it."
+  (loop for line in (uiop:split-string text :separator '(#\Newline))
+        for fields = (tokens line)
+        when (and (or (member "available" fields :test #'string=)
+                      (member "connected" fields :test #'string=))
+                  (not (member "unavailable" fields :test #'string=)))
+          collect (find-if (lambda (token)
+                             (and (= (length token) 36)
+                                  (char= #\- (char token 8))))
+                           fields)))
+
 (defun available-devices ()
-  "Physical devices devicectl can see, as (name . identifier)."
-  (let ((out (run (list "/usr/bin/xcrun" "devicectl" "list" "devices")
-                  :ignore-error-status t)))
-    (loop for line in (uiop:split-string out :separator '(#\Newline))
-          for fields = (tokens line)
-          when (and (search "available" line) (not (search "unavailable" line)))
-            collect (find-if (lambda (token)
-                               (and (= (length token) 36)
-                                    (char= #\- (char token 8))))
-                             fields))))
+  "Physical iOS devices devicectl can install to, as identifiers.
+
+Filtered to iOS by devicectl itself, because a paired Apple Watch appears
+in the unfiltered list and sorts before the phone: a build once went to
+the watch, and the failure it produced was a network timeout rather than
+anything that named the watch."
+  (parse-device-listing
+   (run (list "/usr/bin/xcrun" "devicectl" "list" "devices"
+              "--filter" "hardwareProperties.platform == 'iOS'")
+        :ignore-error-status t)))
 
 (defun install-on-device (bundle &key device)
   (let ((device (or device (first (available-devices))

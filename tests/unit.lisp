@@ -696,3 +696,21 @@ running a child and asking it settles this."
 whole sysroot. Adding to it is fine; losing one of these is the bug."
   (dolist (name '("CPATH" "C_INCLUDE_PATH" "LIBRARY_PATH" "SDKROOT"))
     (is (member name app::+host-toolchain-environment+ :test #'string=))))
+
+;;; ------------------------------------------------------------------
+;;; which device a build goes to
+
+(deftest a-connected-phone-is-a-device-and-a-paired-watch-is-not
+  "devicectl's table, as it looked when a build went to the watch: the watch
+sorted first and said `available', the phone said `connected', and the old
+parser was a substring search for `available' -- which the watch line met
+and the phone line did not."
+  (let ((listing "Name                    Hostname                               Identifier                             State                Model
+---------------------   ------------------------------------   ------------------------------------   ------------------   ---------------------------------
+Matthew's Apple Watch   Matthews-AppleWatch.coredevice.local   D466D62F-9427-55EA-9ECC-E12C7D54998A   unavailable          Apple Watch Series 10 (Watch7,11)
+Matthew's iPhone        Matthews-iPhone.coredevice.local       DB2F98D9-56D7-5336-BC63-43BE2E5AF8DA   connected            iPhone 16e (iPhone17,5)
+Old iPhone              Old-iPhone.coredevice.local            FC5411AB-E766-5613-AB31-A285025C3867   unavailable          iPhone11,6
+Wireless iPhone         Wireless.coredevice.local              11111111-2222-3333-4444-555555555555   available (paired)   iPhone 15 (iPhone15,4)
+"))
+    (is= '("DB2F98D9-56D7-5336-BC63-43BE2E5AF8DA" "11111111-2222-3333-4444-555555555555")
+         (app::parse-device-listing listing))))
