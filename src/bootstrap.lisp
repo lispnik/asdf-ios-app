@@ -1,8 +1,8 @@
 ;;;; bootstrap.lisp -- get a usable iOS ECL, in one command.
 ;;;;
 ;;;; Working out how to build ECL for iOS is most of a day: the host ECL has to
-;;;; come from the same tree as the cross builds, two fixes are needed that are
-;;;; not upstream, and the cross-config and platform flags are not written down
+;;;; come from the same tree as the cross builds, fixes are needed that are not
+;;;; upstream, and the cross-config and platform flags are not written down
 ;;;; anywhere obvious. None of that is interesting and nobody should have to
 ;;;; rediscover it, so it is one function.
 ;;;;
@@ -13,15 +13,22 @@
 
 (in-package #:asdf-ios-app)
 
-(defvar *ecl-repository* "https://gitlab.com/embeddable-common-lisp/ecl.git"
-  "Where BOOTSTRAP-ECL clones ECL from.")
+(defvar *ecl-repository* "https://github.com/lispnik/ecl.git"
+  "Where BOOTSTRAP-ECL clones ECL from.
 
-(defvar *ecl-revision* "develop"
+A fork, until its fixes are upstream. Its objc-develop branch is upstream
+develop plus three, each on its own branch there for sending on: RTLD_DEFAULT
+for the :default module, FFI:CALLBACK returning a closure's entry point rather
+than its writable record, and structures by value through SI:CALL-CFUN. Set
+this back to https://gitlab.com/embeddable-common-lisp/ecl.git the day they
+land.")
+
+(defvar *ecl-revision* "objc-develop"
   "The revision to build.
 
-A moving branch by default, which is a deliberate trade: the two fixes this
-needs are not upstream, and a pinned commit would have to be revised every time
-they land or the surrounding code moves. Pass :REVISION to pin one.")
+A moving branch by default, which is a deliberate trade: the fixes this needs
+are not upstream, and a pinned commit would have to be revised every time they
+land or the surrounding code moves. Pass :REVISION to pin one.")
 
 (defparameter +patch-directory+ "tools/patches/"
   "Relative to this system's source directory.")

@@ -182,20 +182,30 @@ shell script, for when you would rather not run a Lisp to get a Lisp.
 fail, it silently resolves every symbol to the wrong index. `bootstrap-ecl`
 builds a matched set and `check-ecl-prefix` refuses a mismatch.
 
-### Two ECL patches
+### The ECL it builds
 
-Neither is upstream, and `bootstrap-ecl` applies them.
+`bootstrap-ecl` clones [lispnik/ecl](https://github.com/lispnik/ecl) at
+`objc-develop` — upstream `develop` plus fixes that are not upstream yet, each
+on its own branch there for sending on:
 
-1. `configure.ac` ties `ENABLE_DLOPEN` to `--enable-shared`. An iOS app must
-   link statically and can still `dlsym`, so the cross build defines it anyway.
-2. `ecl_library_symbol` calls `dlsym(0, symbol)` for the `:default` module. On
+1. `ecl_library_symbol` calls `dlsym(0, symbol)` for the `:default` module. On
    Darwin a null handle is not the global scope — `RTLD_DEFAULT` is
-   `(void *)-2` — so it always returned NULL.
+   `(void *)-2` — so it always returned NULL, and CFFI, whose ECL backend
+   resolves foreign functions by name, could not work at all.
+2. `ffi:callback` returned a libffi closure's writable record rather than its
+   entry point. The two coincide only where memory may be both; on iOS and
+   arm64 macOS they are mapped apart, and calling the record jumped into the
+   heap. `examples/closure-probe/` measures this on a phone.
+3. `si:call-cfun` passes and returns structures by value, so a `CGRect` no
+   longer has to be smuggled through as scalars and hoped about.
 
-Without both, `si:find-foreign-symbol` fails and CFFI, whose ECL backend
-resolves foreign functions by name, cannot work at all. The first is detectable
-from a built prefix and is checked; the second is a run-time behaviour and is
-not.
+One more is a build matter rather than a patch: `configure.ac` ties
+`ENABLE_DLOPEN` to `--enable-shared`, and an iOS app must link statically while
+still being able to `dlsym`, so the cross build defines it anyway. That one is
+detectable from a built prefix and is checked.
+
+`tools/patches/` still holds the `RTLD_DEFAULT` change as a patch, applied
+only if the tree lacks it, so a build from upstream `develop` works too.
 
 ## Three decisions that shape the design
 
