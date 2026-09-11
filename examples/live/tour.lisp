@@ -68,6 +68,11 @@
 
 (redraw)
 
+;;;    Tap the button on the phone -- or send this, which is what the button
+;;;    does, from here. Either way it is the new definition that runs.
+
+(main (on-tap))
+
 ;;; 6. Animation, from Emacs. An NSTimer is scheduled on the run loop of the
 ;;;    thread that makes it, and a slynk thread has no run loop -- so the
 ;;;    timer is made inside MAIN. Its callback then runs on the main thread,

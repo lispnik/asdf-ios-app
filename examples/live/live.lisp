@@ -29,6 +29,9 @@
 (defvar *height* 0d0)
 (defvar *taps* 0 "How many times the button has been pressed.")
 (defvar *added* '() "Views added from Emacs by ADD-VIEW, so they can be taken away again.")
+(defvar *paint-failed* nil
+  "True while the bottom line is showing a PAINT failure, so that the next
+frame that draws can take the message down again.")
 
 ;;; ------------------------------------------------------------------
 ;;; the main thread
@@ -188,8 +191,12 @@ Remembered, so REMOVE-ADDED-VIEWS can clear the experiment away."
              (*context* (si:call-cfun (cg "UIGraphicsGetCurrentContext") :pointer-void '() '())))
         (setf *width* (aref bounds 2)
               *height* (aref bounds 3))
-        (paint *width* *height*))
+        (paint *width* *height*)
+        (when *paint-failed*
+          (setf *paint-failed* nil)
+          (say (status-line))))
     (serious-condition (condition)
+      (setf *paint-failed* t)
       (say "PAINT signalled: ~a" condition))))
 
 ;;; ------------------------------------------------------------------

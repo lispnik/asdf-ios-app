@@ -426,8 +426,16 @@ Connecting: the simulator shares the Mac's loopback, so `M-x sly-connect` to
 [`examples/live/`](examples/live/) is built around exactly that: its
 `iphone.el` is one Emacs command that starts the forwarder and connects, and
 its `tour.lisp` is ten forms to send to the phone. Measured on an iPhone 16e:
-the server is up before the entry point, the entry point runs, and SLY gets
-its `connection-info` through the cable.
+the server is up before the entry point, the entry point runs, and the whole
+tour runs through the cable.
+
+<p align="center">
+  <a href="doc/videos/live-tour.mp4"><img src="doc/videos/live-tour.gif" width="300" alt="The live example's tour, form by form, with each form captioned under the screen."></a>
+</p>
+
+That is the tour, recorded on the simulator, each form captioned as it is
+sent; [`doc/videos/live-tour.mp4`](doc/videos/live-tour.mp4) is the full-rate
+version.
 
 ### Everything that touches UIKit goes through `on-main`
 

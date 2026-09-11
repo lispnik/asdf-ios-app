@@ -8,6 +8,16 @@ hand, from a SLY REPL in Emacs, over the USB cable. Nothing is rebuilt.
 from Emacs, one form at a time. `iphone.el` is one command that starts the
 forwarder and connects.
 
+<p align="center">
+  <a href="../../doc/videos/live-tour.mp4"><img src="../../doc/videos/live-tour.gif" width="360" alt="The tour, form by form: the caption changes, the canvas is redrawn, an error is reported and fixed, a timer animates the dots, a slider appears, and the screen is tidied."></a>
+</p>
+
+The whole tour, with the form being sent captioned under the screen. This
+recording is the simulator build -- the same app, the same forms, the same
+slynk -- because a phone's screen can only be recorded through QuickTime and
+this was made from a shell. [`live-tour.mp4`](../../doc/videos/live-tour.mp4)
+is the same thing at full rate.
+
 ## What you need
 
 - A phone with Developer Mode on, plugged in and unlocked, and the signing
