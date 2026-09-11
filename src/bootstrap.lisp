@@ -16,14 +16,14 @@
 (defvar *ecl-repository* "https://github.com/lispnik/ecl.git"
   "Where BOOTSTRAP-ECL clones ECL from.
 
-A fork, until its fixes are upstream. Its objc-develop branch is upstream
-develop plus three, each on its own branch there for sending on: RTLD_DEFAULT
+A fork, until its fixes are upstream. Its develop is upstream develop plus
+fixes kept on topic branches there for sending on: RTLD_DEFAULT
 for the :default module, FFI:CALLBACK returning a closure's entry point rather
 than its writable record, and structures by value through SI:CALL-CFUN. Set
 this back to https://gitlab.com/embeddable-common-lisp/ecl.git the day they
 land.")
 
-(defvar *ecl-revision* "objc-develop"
+(defvar *ecl-revision* "develop"
   "The revision to build.
 
 A moving branch by default, which is a deliberate trade: the fixes this needs

@@ -185,7 +185,7 @@ builds a matched set and `check-ecl-prefix` refuses a mismatch.
 ### The ECL it builds
 
 `bootstrap-ecl` clones [lispnik/ecl](https://github.com/lispnik/ecl) at
-`objc-develop` — upstream `develop` plus fixes that are not upstream yet, each
+`develop` — upstream `develop` plus fixes that are not upstream yet, each also
 on its own branch there for sending on:
 
 1. `ecl_library_symbol` calls `dlsym(0, symbol)` for the `:default` module. On
