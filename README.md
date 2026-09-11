@@ -82,6 +82,7 @@ interface, and its `objc/uikit` conveniences — see below.
 | `layers` | a rose curve drawing itself | Core Animation — a `CGPath` computed in Lisp, stroked by a `CAShapeLayer`, with a dot riding the tip |
 | `physics` | shapes falling into a heap | UIKit Dynamics — gravity, collision, elasticity and rotation; a `CGRect` in and a `CGPoint` out, by value, with no C |
 | `attractor` | a strange attractor you can drag | `drawRect:` in Lisp, gestures, a C trampoline kept on purpose, and redefining the mathematics over SLY |
+| `attractor-lisp` | the same attractor, with no C at all | `drawRect:` as a Lisp method taking its `CGRect` by value, the frame rendered into a Lisp array and shown as one `CGImage`, and the gestures reaching closures |
 | `abi-probe` | a report, not an interface | exactly which structs `si:call-cfun` can carry, measured |
 | `closure-probe` | a report, not an interface | what ECL's dynamic FFI can do on a phone, measured on an iPhone 16e: a libffi closure, a `CGRect` in and an `NSRange` out through one, and a variadic call |
 
@@ -102,7 +103,10 @@ builds; see [The ECL it builds](#the-ecl-it-builds).
 
 `attractor` is the one that keeps a trampoline file, and it keeps it by choice
 rather than necessity: its `drawRect:` calls CoreGraphics two million times a
-frame, which is a reasonable thing to have in C.
+frame, which is a reasonable thing to have in C. `attractor-lisp` is the same
+figure without it, and shows the other way to do a hot loop: not two million
+foreign calls from Lisp, but the frame rendered into a Lisp array and handed
+to CoreGraphics as one image. The two are meant to be read side by side.
 
 ### `objc` and `objc/uikit`
 
