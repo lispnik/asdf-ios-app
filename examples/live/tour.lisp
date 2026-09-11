@@ -104,7 +104,9 @@
      slider)))
 
 ;;; 8. Look around. This is the image on the phone: its threads, its memory,
-;;;    the device it is running on.
+;;;    the device it is running on. (A device answers "iPhone", nothing more;
+;;;    iOS stopped giving apps the owner's name for it. The simulator answers
+;;;    with its model, which is how to tell the two apart.)
 
 (mapcar #'mp:process-name (mp:all-processes))
 

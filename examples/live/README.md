@@ -85,12 +85,15 @@ widen `:interface` to a network, and do not ship a build with it on.
 
 ## Measured
 
-On an iPhone 16e, iOS 26.6, over the cable: a `:remote-repl t` build's slynk
-starts before the entry point, the entry point runs, and a client through
-`iproxy` gets `connection-info` and evaluates forms. This app, on the same
-phone, reports `slynk listening on port 4005` on its console at launch.
-
-The full tour -- all ten steps, including the deliberate error, the timer and
-the slider -- was run form by form against the simulator build, where the same
-app listens on the Mac's own loopback and no forwarder is needed. The
+On an iPhone 16e, iOS 26.6.1, over the cable: the full tour -- all ten steps,
+including the deliberate error, the timer and the slider -- was run form by
+form through `iproxy` against this app on the phone, and the app was still
+running afterwards. The same tour runs against the simulator build, where the
+app listens on the Mac's own loopback and no forwarder is needed; the
 screenshot in the top-level README is that build, before the first form.
+
+One thing to know when both are running: the simulator's copy listens on the
+Mac's own port 4005, so `iproxy` cannot bind it and a client that thinks it
+is talking to the phone is talking to the simulator. Step 8 tells them apart
+-- a device answers `"iPhone"`, the simulator its model name -- and so does
+`lsof -iTCP:4005`. Quit one before connecting to the other.
