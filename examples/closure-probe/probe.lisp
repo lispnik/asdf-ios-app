@@ -14,6 +14,7 @@
 ;;;;   2. call it through libffi     -- does the trampoline execute?
 ;;;;   3. call it from C             -- as a framework would
 ;;;;   4. a structure each way       -- a CGRect in, an NSRange out, from C
+;;;;   5. a variadic call            -- snprintf, with the fixed count given
 ;;;;
 ;;;; Written to Documents/closure-report.txt line by line, flushed, and
 ;;;; shown on screen, because a phone is not a terminal.
@@ -83,6 +84,19 @@
               (say "4. from C, a CGRect in and an NSRange out => ~a  ~a" result
                    (if (equal result '(390 . 844)) "correct" "WRONG"))))
         (error (e) (say "4. structures through a closure signalled: ~a" e))))
+    ;; 5. Not a closure, but the other thing the dynamic FFI could not do on
+    ;;    a phone: a variadic call.  The variadic arguments go on the stack
+    ;;    here, and only a cif prepared with the fixed count puts them there.
+    (handler-case
+        (let ((buffer (si::allocate-foreign-data :void 64)))
+          (si:call-cfun (si:find-foreign-symbol "snprintf" :default :pointer-void 0) :int
+                        '(:pointer-void :unsigned-long :cstring :int :cstring :double)
+                        (list buffer 64 "%d %s %.1f" 42 "x" 2.5d0)
+                        :default 3)
+          (let ((text (ffi:convert-from-foreign-string buffer)))
+            (say "5. snprintf, three fixed then int, string, double => ~s  ~a" text
+                 (if (string= text "42 x 2.5") "correct" "WRONG"))))
+      (error (e) (say "5. a variadic call signalled: ~a" e)))
     (say "")
     (say "a libffi closure works on this device")))
 

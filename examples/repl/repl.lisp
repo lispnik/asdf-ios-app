@@ -191,7 +191,10 @@ have somewhere to go -- there is no console behind this window."
                   "(mapcar #'1+ '(1 2 3))"
                   "(format nil \"~r\" 1234)"
                   "(defclass point () ((x :initform 3)))"
-                  "(class-of (make-instance 'point))"))
+                  "(class-of (make-instance 'point))"
+                  ;; A variadic send: the arguments after the format go on the
+                  ;; stack, and the dynamic FFI puts them there now.
+                  "(objc:ns-string-to-string (objc:invoke \"NSString\" '(\"stringWithFormat:\" (objc:objc-object-pointer objc:objc-object-pointer :int) :result-type objc:objc-object-pointer :variadic-num-of-fixed 1) \"%@ and %d\" \"objc\" 42))"))
     (echo (format nil "> ~a" demo))
     (echo (evaluate demo)))
   (demonstrate-delegate)

@@ -83,7 +83,7 @@ interface, and its `objc/uikit` conveniences — see below.
 | `physics` | shapes falling into a heap | UIKit Dynamics — gravity, collision, elasticity and rotation; a `CGRect` in and a `CGPoint` out, by value, with no C |
 | `attractor` | a strange attractor you can drag | `drawRect:` in Lisp, gestures, a C trampoline kept on purpose, and redefining the mathematics over SLY |
 | `abi-probe` | a report, not an interface | exactly which structs `si:call-cfun` can carry, measured |
-| `closure-probe` | a report, not an interface | whether `si:make-dynamic-callback` works on a phone — measured on an iPhone 16e: it does, once ECL hands out the entry point rather than the closure record |
+| `closure-probe` | a report, not an interface | what ECL's dynamic FFI can do on a phone, measured on an iPhone 16e: a libffi closure, a `CGRect` in and an `NSRange` out through one, and a variadic call |
 
 Build any of them with `asdf:make`, with `examples/` on your source registry:
 
