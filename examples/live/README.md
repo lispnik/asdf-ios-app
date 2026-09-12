@@ -6,7 +6,10 @@ hand, from a SLY REPL in Emacs, over the USB cable. Nothing is rebuilt.
 
 `live.lisp` is the app. `tour.lisp` is the demonstration: ten steps to send
 from Emacs, one form at a time. `iphone.el` is one command that starts the
-forwarder and connects.
+forwarder and connects. `lem-iphone.lisp` is the same for
+[Lem](https://github.com/lem-project/lem): load it, `M-x iphone-connect`,
+and `C-c C-p` sends the form at point to the phone. Its slynk client is
+forty lines, since the protocol is a length and an s-expression.
 
 <p align="center">
   <a href="../../doc/videos/live-tour.mp4"><img src="../../doc/videos/live-tour.gif" width="360" alt="The tour, form by form: the caption changes, the canvas is redrawn, an error is reported and fixed, a timer animates the dots, a slider appears, and the screen is tidied."></a>
@@ -56,6 +59,22 @@ localhost RET 4005 RET`. The moment SLY connects the bottom line changes to
 "Emacs is connected". The REPL prompt is `CL-USER>`, and it is the phone's.
 
 Then open `tour.lisp`, and send each form with `C-c C-c`.
+
+## From Lem
+
+```
+M-x load-file RET examples/live/lem-iphone.lisp RET
+M-x iphone-connect          ; iproxy for a phone on the cable, else localhost
+C-c C-p                     ; the top-level form around point
+M-x iphone-eval-region
+M-x iphone-eval             ; a form at a prompt
+```
+
+Forms are read on the phone in the `LIVE` package, so the tour works from
+Lem too. Measured with Lem on its Cocoa frontend against the simulator
+build: `(live:say ...)` and a redefinition of `caption-text` both showed on
+the simulator's screen. A phone on the cable takes the same path
+`iphone.el` does.
 
 ## What the tour shows
 
