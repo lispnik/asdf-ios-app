@@ -2,6 +2,8 @@
 
 CryptoKit, Swift Charts in SwiftUI, and FoundationModels, from Lisp on iOS.
 
+<img src="../../doc/screenshots/swift.png" width="300" alt="A SwiftUI bar chart of prime counts in eight colours, above it three monospaced lines of CryptoKit results, below it a New data button and a line saying the on-device language model is available.">
+
 None of the three has an Objective-C surface: ask the runtime for their
 classes and there are none. `LispSwift.swift` gives each a few `@objc`
 methods that take and return what Objective-C can carry, `build.sh` builds
