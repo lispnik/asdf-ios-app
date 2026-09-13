@@ -1,9 +1,9 @@
 ;;;; hello.lisp -- the least you can write that puts something on screen.
 ;;;;
-;;;; Deliberately depends on nothing. examples/objc-lite is this with the
-;;;; corners knocked off, and every other example uses it; here the point is
-;;;; that the whole bridge fits in a screenful and needs no C compiler, no
-;;;; trampoline file and no library.
+;;;; Deliberately depends on nothing. Every other example uses the objc
+;;;; library through objc/uikit; here the point is that the six lines of
+;;;; bridge this needs fit in a screenful, with no C compiler, no trampoline
+;;;; file and no library.
 
 (defpackage #:hello-ios
   (:use #:cl)
