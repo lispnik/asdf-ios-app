@@ -25,4 +25,11 @@
              (format t "FIXTURE: sockets present: ~a~%"
                      (and (find-package "SB-BSD-SOCKETS") t)))
     (error (e) (format t "FIXTURE: sockets FAILED: ~a~%" e)))
+  ;; The embedded framework: dyld loaded it through the rpath, and its one
+  ;; function resolves through the default scope.
+  (handler-case
+      (format t "FIXTURE: little_c_answer = ~d~%"
+              (si:call-cfun (si:find-foreign-symbol "little_c_answer" :default :pointer-void 0)
+                            :int '() '()))
+    (error (e) (format t "FIXTURE: little_c_answer FAILED: ~a~%" e)))
   (finish-output))

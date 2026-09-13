@@ -1,8 +1,10 @@
 ;;;; sign.lisp -- codesign.
 ;;;;
-;;;; A statically linked iOS app is one Mach-O with no nested code, so this is
-;;;; a single codesign call. The macOS sibling's walk over Frameworks/, helper
-;;;; executables and login items has nothing to find here.
+;;;; A statically linked iOS app is one Mach-O, so this is one codesign call
+;;;; for the bundle -- preceded by one per embedded framework, when there are
+;;;; any, since those are the only nested code an app built here can carry.
+;;;; The macOS sibling's walk over helper executables and login items has
+;;;; nothing to find.
 
 (in-package #:asdf-ios-app)
 
@@ -199,6 +201,12 @@ installs and then refuses to launch."
 (defun sign-bundle (spec)
   (let ((identity (effective-identity spec)))
     (when identity
+      ;; Nested code first, the bundle last: the bundle's signature seals
+      ;; what is inside it, so a framework signed afterwards would break the
+      ;; seal it had just been given.  No entitlements on a framework; those
+      ;; belong to the process, which is the app.
+      (dolist (framework (installed-frameworks spec))
+        (codesign framework identity))
       (codesign (spec-root spec) identity
                 :entitlements (entitlements-file spec))
       (verify-signature spec))

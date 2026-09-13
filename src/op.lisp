@@ -39,6 +39,7 @@
    (modules       :initarg :bundle-ecl-modules :initform nil :reader app-ecl-modules)
    (frameworks    :initarg :bundle-frameworks :initform nil :reader app-frameworks)
    (static-libs   :initarg :bundle-static-libraries :initform nil :reader app-static-libraries)
+   (embedded-fws  :initarg :bundle-embedded-frameworks :initform nil :reader app-embedded-frameworks)
    (objc-sources  :initarg :bundle-objc-sources :initform nil :reader app-objc-sources)
    (objc-main     :initarg :bundle-objc-main :initform nil :reader app-objc-main)
    (delegate      :initarg :bundle-app-delegate :initform nil :reader app-delegate-class)
@@ -99,6 +100,19 @@ which."
                             (platform-name platform)
                             (default-bundle-name system))))
 
+(defun embedded-framework-path (entry source platform)
+  "ENTRY, a :BUNDLE-EMBEDDED-FRAMEWORKS element, as the framework directory
+for PLATFORM.
+
+A framework is built per platform, and one entry has to name both builds, so
+ENTRY is a FORMAT control string whose one ~A is the platform's name --
+iphoneos or iphonesimulator, which are also what Xcode calls them:
+\"build/~A/LispSwift.framework\".  An entry with no directive is the same
+directory for both, which is right for nothing built from source."
+  (let ((platform (if (ios-platform-p platform) platform (find-platform platform))))
+    (uiop:ensure-directory-pathname
+     (merge-pathnames (format nil entry (platform-name platform)) source))))
+
 (defun system-app-spec (system platform)
   (let ((source (asdf:system-source-directory system)))
     (flet ((resource (entry)
@@ -134,6 +148,9 @@ which."
                        '("UIKit" "Foundation" "CoreGraphics"))
        :static-libraries (mapcar (lambda (p) (merge-pathnames p source))
                                  (app-static-libraries system))
+       :embedded-frameworks (mapcar (lambda (entry)
+                                      (embedded-framework-path entry source platform))
+                                    (app-embedded-frameworks system))
        :link-flags (app-link-flags system)
        :signing-identity (app-identity system)
        :team-id (app-team-id system)
@@ -701,6 +718,7 @@ without a rebuild."
              (install-icon spec (icon-catalogue (spec-icon spec))))
            (write-pkginfo spec)
            (install-resources spec)
+           (install-embedded-frameworks spec)
            (install-lisp-sources spec system)
            (install-provisioning-profile spec)
            ;; Before anything expensive: a mismatched profile is a build-time

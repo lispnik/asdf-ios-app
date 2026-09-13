@@ -36,6 +36,7 @@
   ecl-modules                           ; ("sockets" ...) linked and initialised
   (frameworks '("UIKit" "Foundation"))  ; -framework arguments
   static-libraries                      ; extra .a to link
+  embedded-frameworks                   ; .framework directories to ship and link
   link-flags                            ; extra clang arguments
   (signing-identity :automatic)         ; :AUTOMATIC, NIL, "-", or an identity
   team-id
@@ -63,6 +64,34 @@
 
 (defun lisp-directory (spec)
   (uiop:subpathname (spec-root spec) "lisp/"))
+
+(defun frameworks-directory (spec)
+  "Where embedded frameworks go: Frameworks/ at the bundle root, which is
+where dyld's @executable_path/Frameworks rpath looks on iOS."
+  (uiop:subpathname (spec-root spec) "Frameworks/"))
+
+(defun framework-name (framework)
+  "LispSwift, for .../LispSwift.framework/."
+  (let ((name (car (last (pathname-directory
+                          (uiop:ensure-directory-pathname framework))))))
+    (unless (and (stringp name) (uiop:string-suffix-p name ".framework"))
+      (barf "~a is not a .framework directory." (uiop:native-namestring framework)))
+    (subseq name 0 (- (length name) (length ".framework")))))
+
+(defun framework-binary (framework)
+  "The Mach-O inside FRAMEWORK, which an iOS framework keeps at its root
+under its own name."
+  (uiop:subpathname (uiop:ensure-directory-pathname framework)
+                    (framework-name framework)))
+
+(defun installed-frameworks (spec)
+  "The framework bundles inside the app."
+  (let ((directory (frameworks-directory spec)))
+    (when (uiop:directory-exists-p directory)
+      (remove-if-not (lambda (subdirectory)
+                       (uiop:string-suffix-p
+                        (car (last (pathname-directory subdirectory))) ".framework"))
+                     (uiop:subdirectories directory)))))
 
 (defun make-skeleton (spec &key clean)
   (when (and clean (probe-file (spec-root spec)))
@@ -239,7 +268,7 @@ failure here leaves the old one intact rather than nothing at all."
 
 (defparameter +reserved-bundle-names+
   '("Info.plist" "PkgInfo" "embedded.mobileprovision" "Assets.car"
-    "_CodeSignature" "lisp")
+    "_CodeSignature" "lisp" "Frameworks")
   "Names a resource may not take.
 
 Longer than the macOS sibling's list, and it has to be: an iOS bundle is flat,

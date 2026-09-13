@@ -68,12 +68,12 @@ you can write. There are more below.
 </tr>
 <tr>
   <th align="center">live</th>
-  <th></th>
+  <th align="center">swift</th>
   <th></th>
 </tr>
 <tr>
   <td><img src="doc/screenshots/live.png" width="210" alt="A grid of coloured dots on a dark canvas under a caption, with a status line saying slynk is listening and a tap button."></td>
-  <td></td>
+  <td><img src="doc/screenshots/swift.png" width="210" alt="A SwiftUI bar chart of prime counts in eight colours, above it three monospaced lines of CryptoKit results, below it a New data button and a line saying the on-device language model is available."></td>
   <td></td>
 </tr>
 </table>
@@ -94,6 +94,7 @@ interface, and its `objc/uikit` conveniences — see below.
 | `physics` | shapes falling into a heap | UIKit Dynamics — gravity, collision, elasticity and rotation; a `CGRect` in and a `CGPoint` out, by value, with no C |
 | `attractor-aot` | a strange attractor you can drag | `drawRect:` in Lisp, gestures, a C trampoline compiled ahead of time and kept on purpose, and redefining the mathematics over SLY |
 | `attractor-dynamic` | the same attractor, with no C at all | `drawRect:` as a Lisp method taking its `CGRect` by value, the frame rendered into a Lisp array and shown as one `CGImage`, and the gestures reaching closures |
+| `swift` | a SwiftUI bar chart, CryptoKit results and a button | frameworks with no Objective-C surface — CryptoKit, Swift Charts, FoundationModels — reached through a hundred lines of `@objc` Swift shipped as an embedded framework; the chart is a `UIHostingController` child, the data is Lisp's |
 | `live` | a canvas, a caption and a button | programming the phone from Emacs over the USB cable: SLY connected to the app on a device, and every function on the screen redefined without a rebuild — see [`examples/live/`](examples/live/) and its `tour.lisp` |
 | `abi-probe` | a report, not an interface | exactly which structs `si:call-cfun` can carry, measured |
 | `closure-probe` | a report, not an interface | what ECL's dynamic FFI can do on a phone, measured on an iPhone 16e: a libffi closure, a `CGRect` in and an `NSRange` out through one, and a variadic call |
@@ -269,6 +270,7 @@ lands on the `Info.plist`. Reserved names are refused.
 | `:bundle-ecl-modules` | — | e.g. `("sockets")`; `asdf` is added when needed |
 | `:bundle-frameworks` | `("UIKit" "Foundation" "CoreGraphics")` | |
 | `:bundle-static-libraries`, `:bundle-link-flags`, `:bundle-objc-flags` | — | |
+| `:bundle-embedded-frameworks` | — | `.framework` directories to ship in `Frameworks/`, link, and sign; `~a` in a path is the platform name |
 | `:bundle-objc-sources` | — | your own `.m`, compiled after ours |
 | `:bundle-objc-main` | — | replaces `ECLMain.m` |
 | `:bundle-app-delegate` | `"ECLAppDelegate"` | |
@@ -284,6 +286,27 @@ lands on the `Info.plist`. Reserved names are refused.
 toplevel that runs to completion: it is called once, on the main thread, from
 `-application:didFinishLaunchingWithOptions:`, and it must *return* so the run
 loop can start.
+
+### Embedding a framework
+
+A framework of your own goes in with `:bundle-embedded-frameworks`. It is
+copied into the bundle's `Frameworks/`, the executable is linked against it
+with an rpath of `@executable_path/Frameworks`, and it is signed with the
+app's identity before the app is. A framework is built per platform, so an
+entry is a `format` control string whose `~a` becomes `iphonesimulator` or
+`iphoneos`:
+
+```lisp
+:bundle-embedded-frameworks ("build/~a/LispSwift.framework")
+```
+
+The framework must call itself `@rpath/<Name>.framework/<Name>`; the build
+refuses one that does not, naming the linker flag that fixes it, because the
+alternative is an app that installs and dies at launch with dyld's "Library
+not loaded". This is how Swift gets in: a framework with no Objective-C
+surface is reached through a few `@objc` Swift methods, and that Swift ships
+as a framework — see [`examples/swift/`](examples/swift/). iOS has carried
+the Swift runtime since 12.2, so nothing else needs to travel with it.
 
 ## Ahead of time does not mean frozen
 

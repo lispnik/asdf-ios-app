@@ -20,4 +20,8 @@
   ;; Linked and initialised on purpose: (require 'sockets) at boot is where the
   ;; load-the-host-fasl bug shows up, and it only shows up in the simulator,
   ;; where the compiled-in ECLDIR is a real readable directory on the Mac.
-  :bundle-ecl-modules ("sockets" "sb-bsd-sockets"))
+  :bundle-ecl-modules ("sockets" "sb-bsd-sockets")
+  ;; One C function in a framework of its own, built by the test harness for
+  ;; the simulator: the embedded-framework path end to end -- installed,
+  ;; linked, signed, and called at run time.
+  :bundle-embedded-frameworks ("LittleC.framework"))

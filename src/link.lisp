@@ -164,9 +164,91 @@ application's library, then ECL's modules, then ECL itself."
                  (loop for framework in (spec-frameworks spec)
                        collect "-framework" collect framework)
                  (mapcar #'uiop:native-namestring (spec-static-libraries spec))
+                 (embedded-framework-link-flags spec)
                  (spec-link-flags spec))
          :echo-error t)
     output))
+
+;;; ------------------------------------------------------------------
+;;; embedded frameworks
+;;;
+;;; A framework built for the platform, shipped in Frameworks/ at the bundle
+;;; root and linked against.  Swift, most likely: a framework with no
+;;; Objective-C surface -- CryptoKit, Swift Charts, SwiftUI, FoundationModels
+;;; -- is reached from Lisp through a hundred lines of @objc Swift, and that
+;;; Swift has to ship as a framework of its own.  iOS has carried the Swift
+;;; runtime since 12.2, so nothing else needs to travel with it.
+;;;
+;;; The one thing to get right is the install name.  dyld finds the framework
+;;; through the rpath the executable is linked with, and only if the
+;;; framework calls itself @rpath/<Name>.framework/<Name>; a framework built
+;;; without -install_name names its build directory instead, which exists on
+;;; the Mac and not on the phone, and the app dies at launch with dyld's
+;;; "Library not loaded".  So the install name is checked before the build
+;;; goes any further, and the message says what to pass.
+
+(defun install-name (binary)
+  "The install name a dynamic library carries, from otool -D."
+  (let ((lines (remove "" (uiop:split-string
+                           (run (list "/usr/bin/otool" "-D" (uiop:native-namestring binary)))
+                           :separator '(#\Newline))
+                       :test #'string=)))
+    ;; The first line is the file name followed by a colon; the second is
+    ;; the install name.
+    (string-trim " " (or (second lines) ""))))
+
+(defun check-embedded-framework (spec framework)
+  (let ((platform (spec-platform spec)))
+    (unless (uiop:directory-exists-p framework)
+      (barf "No framework at ~a. A framework is built per platform, and this ~
+             is a ~a build: is that one built?"
+            (uiop:native-namestring framework) (platform-name platform)))
+    (let ((binary (framework-binary framework)))
+      (unless (probe-file binary)
+        (barf "~a has no ~a inside it. An iOS framework keeps its Mach-O at its ~
+               root, under the framework's own name."
+              (uiop:native-namestring framework) (framework-name framework)))
+      (let ((expected (platform-mach-o-platform platform))
+            (actual (mach-o-platform binary)))
+        (unless (string= expected actual)
+          (barf "~a is a ~a binary but this is a ~a build."
+                (uiop:native-namestring binary) actual expected)))
+      (let ((wanted (format nil "@rpath/~a.framework/~a"
+                            (framework-name framework) (framework-name framework)))
+            (actual (install-name binary)))
+        (unless (string= wanted actual)
+          (barf "~a has the install name ~s, and dyld will look there on the ~
+                 device. Build it with -Xlinker -install_name -Xlinker ~a ~
+                 (swiftc) or -install_name ~a (clang)."
+                (uiop:native-namestring binary) actual wanted wanted))))
+    framework))
+
+(defun install-embedded-frameworks (spec)
+  "Copy :BUNDLE-EMBEDDED-FRAMEWORKS into Frameworks/, after checking each."
+  (let ((frameworks (spec-embedded-frameworks spec)))
+    (when frameworks
+      (let ((directory (frameworks-directory spec)))
+        (ensure-directories-exist directory)
+        (dolist (framework frameworks)
+          (check-embedded-framework spec framework)
+          (run (list "/bin/cp" "-R"
+                     (string-right-trim "/" (uiop:native-namestring framework))
+                     (uiop:native-namestring directory))))))
+    frameworks))
+
+(defun embedded-framework-link-flags (spec)
+  "-F for where each framework was built and -framework for its name, then
+one rpath so dyld looks in the bundle's Frameworks/ at run time."
+  (let ((frameworks (spec-embedded-frameworks spec)))
+    (when frameworks
+      (append (loop for framework in frameworks
+                    collect (format nil "-F~a"
+                                    (uiop:native-namestring
+                                     (uiop:pathname-parent-directory-pathname
+                                      (uiop:ensure-directory-pathname framework))))
+                    collect "-framework"
+                    collect (framework-name framework))
+              (list "-Xlinker" "-rpath" "-Xlinker" "@executable_path/Frameworks")))))
 
 (defun mach-o-platform (path)
   (let ((out (run (list "/usr/bin/otool" "-lv" (uiop:native-namestring path))

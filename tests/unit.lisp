@@ -137,7 +137,7 @@ for -- which is exactly the sort of test that passes while proving nothing."
 
 (deftest reserved-names-are-refused
   (dolist (name '("Info.plist" "PkgInfo" "_CodeSignature"
-                  "embedded.mobileprovision" "lisp"))
+                  "embedded.mobileprovision" "lisp" "Frameworks"))
     (signals app::app-build-error
       (app::check-resource-destination (test-spec) name))))
 
@@ -154,6 +154,44 @@ for -- which is exactly the sort of test that passes while proving nothing."
 (deftest ordinary-resource-destinations-are-allowed
   (is= "data.txt" (app::check-resource-destination (test-spec) "data.txt"))
   (is= "res/data.txt" (app::check-resource-destination (test-spec) "res/data.txt")))
+
+;;; ------------------------------------------------------------------
+;;; embedded frameworks
+;;;
+;;; A framework is built per platform, so one entry names both builds through
+;;; a FORMAT directive; and a framework's name is its directory's, without
+;;; the suffix, which is also the name of the Mach-O inside it.
+
+(deftest an-embedded-framework-entry-names-the-platform
+  (let ((source #p"/src/app/"))
+    (is= "/src/app/build/iphonesimulator/LispSwift.framework/"
+         (namestring (app::embedded-framework-path "build/~a/LispSwift.framework"
+                                                   source :simulator)))
+    (is= "/src/app/build/iphoneos/LispSwift.framework/"
+         (namestring (app::embedded-framework-path "build/~a/LispSwift.framework"
+                                                   source :device)))
+    ;; No directive: the same directory for both platforms.
+    (is= "/src/app/One.framework/"
+         (namestring (app::embedded-framework-path "One.framework" source :device)))))
+
+(deftest a-framework-is-named-by-its-directory
+  (is= "LispSwift" (app::framework-name #p"/x/LispSwift.framework/"))
+  (is= "/x/LispSwift.framework/LispSwift"
+       (namestring (app::framework-binary #p"/x/LispSwift.framework/")))
+  (signals app::app-build-error (app::framework-name #p"/x/LispSwift/")))
+
+(deftest embedded-frameworks-link-with-an-rpath
+  (let ((flags (app::embedded-framework-link-flags
+                (app::make-app-spec :platform (app::find-platform :simulator)
+                                    :embedded-frameworks
+                                    (list #p"/x/build/iphonesimulator/LispSwift.framework/")))))
+    (is (member "-F/x/build/iphonesimulator/" flags :test #'string=))
+    (is (search '("-framework" "LispSwift") flags :test #'string=))
+    (is (search '("-rpath" "-Xlinker" "@executable_path/Frameworks") flags :test #'string=)))
+  ;; Nothing embedded, nothing added: the link line of every other app is as
+  ;; it was.
+  (is (null (app::embedded-framework-link-flags
+             (app::make-app-spec :platform (app::find-platform :simulator))))))
 
 ;;; ------------------------------------------------------------------
 ;;; init names
