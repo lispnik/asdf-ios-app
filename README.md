@@ -76,6 +76,16 @@ you can write. There are more below.
   <td><img src="doc/screenshots/swift.png" width="210" alt="A SwiftUI bar chart of prime counts in eight colours, above it three monospaced lines of CryptoKit results, below it a New data button and a line saying the on-device language model is available."></td>
   <td><img src="doc/screenshots/model.png" width="210" alt="A transcript: three questions about large numbers, under each the Lisp tool call the model made and its exact result, then the model's answer; below, the three questions as buttons and a field for another."></td>
 </tr>
+<tr>
+  <th align="center">surface</th>
+  <th></th>
+  <th></th>
+</tr>
+<tr>
+  <td><img src="doc/screenshots/surface.png" width="210" alt="A lit, coloured 3D surface of concentric ripples on a grid of axes, under a title saying the surface is a Lisp function, above a caption counting how many times Chart3D has called into Lisp and a row of buttons naming other surfaces."></td>
+  <td></td>
+  <td></td>
+</tr>
 </table>
 
 Every one of these is a screenshot of the simulator, from a clean install of a
@@ -95,6 +105,7 @@ interface, and its `objc/uikit` conveniences — see below.
 | `attractor-aot` | a strange attractor you can drag | `drawRect:` in Lisp, gestures, a C trampoline compiled ahead of time and kept on purpose, and redefining the mathematics over SLY |
 | `attractor-dynamic` | the same attractor, with no C at all | `drawRect:` as a Lisp method taking its `CGRect` by value, the frame rendered into a Lisp array and shown as one `CGImage`, and the gestures reaching closures |
 | `swift` | a SwiftUI bar chart, CryptoKit results and a button | frameworks with no Objective-C surface — CryptoKit, Swift Charts, FoundationModels — reached through a hundred lines of `@objc` Swift shipped as an embedded framework; the chart is a `UIHostingController` child, the data is Lisp's |
+| `surface` | a lit, rotatable 3D surface and a row of buttons | Swift Charts 3D, new in iOS 26: Chart3D samples z = f(x, y) by calling a block made from a Lisp lambda, thousands of times per mesh; each button hands it a different lambda |
 | `model` | a transcript, three questions as buttons, a field | the on-device language model of iOS 26 answering questions about large numbers by calling tools that are Lisp closures — `(expt 2 200)` evaluated exactly in the image, the model reading the digits back; the model's own thread arrives in a block made from a lambda |
 | `live` | a canvas, a caption and a button | programming the phone from Emacs over the USB cable: SLY connected to the app on a device, and every function on the screen redefined without a rebuild — see [`examples/live/`](examples/live/) and its `tour.lisp` |
 | `abi-probe` | a report, not an interface | exactly which structs `si:call-cfun` can carry, measured |
