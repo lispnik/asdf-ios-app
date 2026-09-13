@@ -235,7 +235,10 @@ simulator by clang, with the install name an embedded framework must have."
                                               :device device)
                  (let ((output (app::launch-in-simulator
                                 bundle "org.asdf-ios-app.fixture"
-                                :device device :console t)))
+                                :device device :console t
+                                ;; The fixture's last line: wait for it,
+                                ;; not for a clock.
+                                :until "little_c_answer")))
                    (is (search "FIXTURE: hello from Lisp on iOS" output))
                    ;; The image is live even though every function in it was
                    ;; compiled ahead of time.

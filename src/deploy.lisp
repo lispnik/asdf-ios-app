@@ -26,13 +26,23 @@
              (string-right-trim "/" (uiop:native-namestring bundle))))
   device)
 
-(defvar *console-seconds* 15
-  "How long LAUNCH-IN-SIMULATOR watches a console launch before giving up.")
+(defvar *console-seconds* 60
+  "How long LAUNCH-IN-SIMULATOR watches a console launch before giving up.
+
+Sixty rather than the fifteen it was, and a deadline rather than a wait: a
+simulator that booted a minute ago on a GitHub runner takes longer than
+fifteen seconds to launch its first app, and the fixed wait returned an
+empty log three runs out of five with nothing wrong but the clock.")
 
 (defun launch-in-simulator (bundle identifier
                             &key (device (require-booted-simulator)) console
-                                 (seconds *console-seconds*))
+                                 (seconds *console-seconds*) until)
   "Launch, and with CONSOLE return what the app writes to stdout and stderr.
+
+UNTIL is a string: once the output contains it the console is released and
+the output returned, so a caller waits for what it is looking for and no
+longer.  Without it, or if it never appears, the output is whatever arrived
+by SECONDS.
 
 The console form has to be run asynchronously and killed. simctl's
 --console-pty stays attached until the app exits, and a UIKit app does not
@@ -45,16 +55,25 @@ attribute and much slower to appear."
       (let ((log (uiop:tmpize-pathname
                   (uiop:subpathname (uiop:temporary-directory)
                                     "asdf-ios-app-console.log"))))
-        (unwind-protect
-             (let ((process (uiop:launch-program
-                             (list "/usr/bin/xcrun" "simctl" "launch"
-                                   "--console-pty" device identifier)
-                             :output log :error-output :output)))
-               (unwind-protect (sleep seconds)
-                 (ignore-errors (uiop:terminate-process process :urgent t))
-                 (ignore-errors (uiop:wait-process process)))
-               (if (probe-file log) (uiop:read-file-string log) ""))
-          (ignore-errors (delete-file log))))))
+        (flet ((output ()
+                 (if (probe-file log)
+                     (ignore-errors (uiop:read-file-string log))
+                     "")))
+          (unwind-protect
+               (let ((process (uiop:launch-program
+                               (list "/usr/bin/xcrun" "simctl" "launch"
+                                     "--console-pty" device identifier)
+                               :output log :error-output :output)))
+                 (unwind-protect
+                      (loop with deadline = (+ (get-internal-real-time)
+                                               (* seconds internal-time-units-per-second))
+                            do (sleep 0.5)
+                            until (or (>= (get-internal-real-time) deadline)
+                                      (and until (search until (or (output) "")))))
+                   (ignore-errors (uiop:terminate-process process :urgent t))
+                   (ignore-errors (uiop:wait-process process)))
+                 (or (output) ""))
+            (ignore-errors (delete-file log)))))))
 
 (defun terminate-in-simulator (identifier &key (device (require-booted-simulator)))
   (run (list "/usr/bin/xcrun" "simctl" "terminate" device identifier)
