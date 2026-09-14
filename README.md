@@ -78,13 +78,33 @@ you can write. There are more below.
 </tr>
 <tr>
   <th align="center">surface</th>
-  <th></th>
-  <th></th>
+  <th align="center">scene</th>
+  <th align="center">opener</th>
 </tr>
 <tr>
   <td><img src="doc/screenshots/surface.png" width="210" alt="A lit, coloured 3D surface of concentric ripples on a grid of axes, under a title saying the surface is a Lisp function, above a caption counting how many times Chart3D has called into Lisp and a row of buttons naming other surfaces."></td>
-  <td></td>
-  <td></td>
+  <td><img src="doc/screenshots/scene.png" width="210" alt="A log of scene lifecycle events with times, from will-connect through did-enter-background and back to did-become-active, under a line counting returns to the foreground."></td>
+  <td><img src="doc/screenshots/opener.png" width="210" alt="Three lisp:// URLs the app received, each followed by the form evaluated and its result or the text shown, and buttons that open each link."></td>
+</tr>
+<tr>
+  <th align="center">ledger</th>
+  <th align="center">settings</th>
+  <th align="center">fetch</th>
+</tr>
+<tr>
+  <td><img src="doc/screenshots/ledger.png" width="210" alt="A table of ledger entries with their number, time and hex fingerprint, under a text field and an Add button."></td>
+  <td><img src="doc/screenshots/settings.png" width="210" alt="A ring of coloured circles with a SwiftUI form sheet over the lower half, with sliders, a picker and a toggle."></td>
+  <td><img src="doc/screenshots/fetch.png" width="210" alt="A table of GitHub repositories with language, stars and last push, under a status line naming the session thread the reply arrived on."></td>
+</tr>
+<tr>
+  <th align="center">notify</th>
+  <th align="center">mosaic</th>
+  <th align="center">sensors</th>
+</tr>
+<tr>
+  <td><img src="doc/screenshots/notify.png" width="210" alt="A log of authorisation, scheduling and presentation of a notification, with buttons to schedule another."></td>
+  <td><img src="doc/screenshots/mosaic.png" width="210" alt="A grid of coloured tiles of different sizes, each a package name and its symbol count."></td>
+  <td><img src="doc/screenshots/sensors.png" width="210" alt="A grey disc with a blue bubble, a reading line, and buttons for a haptic tap and Face ID."></td>
 </tr>
 </table>
 
@@ -106,6 +126,14 @@ interface, and its `objc/uikit` conveniences — see below.
 | `attractor-dynamic` | the same attractor, with no C at all | `drawRect:` as a Lisp method taking its `CGRect` by value, the frame rendered into a Lisp array and shown as one `CGImage`, and the gestures reaching closures |
 | `swift` | a SwiftUI bar chart, CryptoKit results and a button | frameworks with no Objective-C surface — CryptoKit, Swift Charts, FoundationModels — reached through a hundred lines of `@objc` Swift shipped as an embedded framework; the chart is a `UIHostingController` child, the data is Lisp's |
 | `surface` | a lit, rotatable 3D surface and a row of buttons | Swift Charts 3D, new in iOS 26: Chart3D samples z = f(x, y) by calling a block made from a Lisp lambda, thousands of times per mesh; each button hands it a different lambda |
+| `scene` | a log of lifecycle events | an application delegate of the app's own, scene based, through `:bundle-app-delegate` and `:bundle-objc-sources`, with every UIScene event reported to Lisp; an icon through `:bundle-icon` |
+| `opener` | a log of URLs received | `:bundle-url-schemes` and `:bundle-document-types`: `lisp://` links and `.lisp` files open the app and land in Lisp, through the delegate's URL entry points |
+| `ledger` | a table of entries and a field | SQLite through `:bundle-link-flags`, a C function of the app's own through `:bundle-static-libraries`, both called by name through the dynamic FFI; the ledger persists across launches |
+| `settings` | a pattern of marks and a SwiftUI sheet | the other direction: a SwiftUI Form edits Lisp variables through one block, and Lisp redraws |
+| `fetch` | a table of repositories | NSURLSession from Lisp, the completion handler a Lisp closure called on a session thread, JSON walked in Lisp |
+| `notify` | a log and three buttons | UNUserNotificationCenter: authorisation through a block, a notification scheduled from Lisp, a delegate in Lisp that presents it by calling UIKit's block |
+| `mosaic` | a mosaic of coloured tiles | a collection view whose flow-layout delegate is a Lisp class returning `CGSize` and `UIEdgeInsets` by value, the tiles the packages of the running image |
+| `sensors` | a bubble level and two buttons | the accelerometer, haptics and Face ID, three things only a device has, each an Objective-C object calling a Lisp block from its own thread; builds for the device too |
 | `model` | a transcript, three questions as buttons, a field | the on-device language model of iOS 26 answering questions about large numbers by calling tools that are Lisp closures — `(expt 2 200)` evaluated exactly in the image, the model reading the digits back; the model's own thread arrives in a block made from a lambda |
 | `live` | a canvas, a caption and a button | programming the phone from Emacs over the USB cable: SLY connected to the app on a device, and every function on the screen redefined without a rebuild — see [`examples/live/`](examples/live/) and its `tour.lisp` |
 | `abi-probe` | a report, not an interface | exactly which structs `si:call-cfun` can carry, measured |
@@ -281,7 +309,8 @@ lands on the `Info.plist`. Reserved names are refused.
 | `:bundle-trampolines` | — | files compiled for the target only; see below |
 | `:bundle-ecl-modules` | — | e.g. `("sockets")`; `asdf` is added when needed |
 | `:bundle-frameworks` | `("UIKit" "Foundation" "CoreGraphics")` | |
-| `:bundle-static-libraries`, `:bundle-link-flags`, `:bundle-objc-flags` | — | |
+| `:bundle-static-libraries` | — | `.a` files to link, force-loaded so Lisp can call every function by name; `~a` in a path is the platform name |
+| `:bundle-link-flags`, `:bundle-objc-flags` | — | |
 | `:bundle-embedded-frameworks` | — | `.framework` directories to ship in `Frameworks/`, link, and sign; `~a` in a path is the platform name |
 | `:bundle-objc-sources` | — | your own `.m`, compiled after ours |
 | `:bundle-objc-main` | — | replaces `ECLMain.m` |

@@ -163,7 +163,14 @@ application's library, then ECL's modules, then ECL itself."
                        "-lecl" "-leclgc" "-leclgmp" "-leclffi")
                  (loop for framework in (spec-frameworks spec)
                        collect "-framework" collect framework)
-                 (mapcar #'uiop:native-namestring (spec-static-libraries spec))
+                 ;; Force-loaded, every member: a static library named here
+                 ;; is for Lisp to call BY NAME at run time, and the linker
+                 ;; keeps an archive member only for a reference it can see
+                 ;; at link time -- so a plain path links nothing, and the
+                 ;; first dlsym finds nothing, with no error until then.
+                 (loop for library in (spec-static-libraries spec)
+                       collect (format nil "-Wl,-force_load,~a"
+                                       (uiop:native-namestring library)))
                  (embedded-framework-link-flags spec)
                  (spec-link-flags spec))
          :echo-error t)

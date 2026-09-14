@@ -146,7 +146,14 @@ directory for both, which is right for nothing built from source."
        :ecl-modules (needed-ecl-modules system)
        :frameworks (or (app-frameworks system)
                        '("UIKit" "Foundation" "CoreGraphics"))
-       :static-libraries (mapcar (lambda (p) (merge-pathnames p source))
+       ;; A static library is built per platform too, so its entry may
+       ;; name the platform the same way a framework's does.
+       :static-libraries (mapcar (lambda (entry)
+                                   (merge-pathnames (format nil entry (platform-name
+                                                                       (if (ios-platform-p platform)
+                                                                           platform
+                                                                           (find-platform platform))))
+                                                    source))
                                  (app-static-libraries system))
        :embedded-frameworks (mapcar (lambda (entry)
                                       (embedded-framework-path entry source platform))
