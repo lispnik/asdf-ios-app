@@ -259,6 +259,48 @@ for -- which is exactly the sort of test that passes while proving nothing."
   (signals app::app-build-error
     (app::effective-identity (test-spec :platform (app::find-platform :device)))))
 
+(deftest the-shipped-delegate-has-a-scene-manifest
+  "UIScene is the lifecycle, so the generated Info.plist points UIKit at the
+scene delegate the shim carries -- and only when the delegate IS the shim's.
+An application with a delegate of its own decides about scenes itself."
+  (let ((form (app::info-plist-form (test-spec))))
+    (is (plist-has-key-p form "UIApplicationSceneManifest"))
+    (is (search "ECLSceneDelegate"
+                (prin1-to-string (plist-entry form "UIApplicationSceneManifest")))))
+  (is (plist-has-key-p (app::info-plist-form (test-spec :delegate "ECLAppDelegate"))
+                       "UIApplicationSceneManifest"))
+  (is (not (plist-has-key-p (app::info-plist-form (test-spec :delegate "MyDelegate"))
+                            "UIApplicationSceneManifest"))))
+
+(deftest the-runtime-keeps-the-console-under-home
+  "KEEP-CONSOLE mirrors both output streams into a file under HOME, which
+on a phone is the app's Documents directory.  Exercised here on the host
+with HOME pointed at a scratch directory, and the streams put back."
+  (let* ((scratch (uiop:ensure-directory-pathname
+                   (uiop:subpathname (uiop:temporary-directory)
+                                     (format nil "asdf-ios-app-console-~d/" (random 1000000)))))
+         (home (ext:getenv "HOME"))
+         (out *standard-output*)
+         (err *error-output*)
+         (log (uiop:subpathname scratch "test-console.log")))
+    (ensure-directories-exist scratch)
+    (unwind-protect
+         (progn
+           (ext:setenv "HOME" (string-right-trim "/" (uiop:native-namestring scratch)))
+           (setf ios-app-runtime:*console-log* nil)
+           (ios-app-runtime::keep-console "test-console.log")
+           (is (equal (uiop:native-namestring log) ios-app-runtime:*console-log*))
+           (format t "to standard output~%")
+           (format *error-output* "to error output~%")
+           (finish-output) (finish-output *error-output*)
+           (let ((text (uiop:read-file-string log)))
+             (is (search "to standard output" text))
+             (is (search "to error output" text))))
+      (setf *standard-output* out *error-output* err
+            ios-app-runtime:*console-log* nil)
+      (ext:setenv "HOME" home)
+      (ignore-errors (uiop:delete-directory-tree scratch :validate t)))))
+
 (deftest a-simulator-build-carries-no-entitlements
   (is (null (app::entitlements-file (test-spec))))
   (is (null (app::entitlements-file (test-spec :entitlements nil)))))

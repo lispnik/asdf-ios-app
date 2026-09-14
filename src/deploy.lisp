@@ -79,6 +79,70 @@ attribute and much slower to appear."
   (run (list "/usr/bin/xcrun" "simctl" "terminate" device identifier)
        :ignore-error-status t))
 
+;;; ------------------------------------------------------------------
+;;; the console, read back
+;;;
+;;; The runtime keeps everything the image prints in Documents/console.log
+;;; inside the app's own container (see KEEP-CONSOLE in runtime.lisp).  On
+;;; the simulator that container is a directory on the Mac; on a phone it
+;;; is reached through devicectl's copy.  Either way it is the record the
+;;; console attach cannot be relied on for: simctl's pty drops output, and a
+;;; devicectl attach relays none at all.
+
+(defun simulator-app-data-container (identifier &key (device (require-booted-simulator)))
+  "The app's data container in the simulator, as a directory pathname."
+  (uiop:ensure-directory-pathname
+   (string-trim '(#\Space #\Newline)
+                (run (list "/usr/bin/xcrun" "simctl" "get_app_container"
+                           device identifier "data")))))
+
+(defun simulator-console-log (identifier &key (device (require-booted-simulator)))
+  "What the app has printed since its last launch, or NIL if nothing yet."
+  (let ((file (uiop:subpathname (simulator-app-data-container identifier :device device)
+                                "Documents/console.log")))
+    (and (probe-file file) (uiop:read-file-string file))))
+
+(defun device-console-log (identifier &key device)
+  "The same file, copied off a phone; NIL if the app has not written one.
+
+The phone must be unlocked, as for every devicectl operation."
+  (let ((device (or device (first (available-devices))
+                    (barf "No device available.")))
+        (destination (uiop:tmpize-pathname
+                      (uiop:subpathname (uiop:temporary-directory) "console.log"))))
+    (unwind-protect
+         (multiple-value-bind (out err code)
+             (run (list "/usr/bin/xcrun" "devicectl" "device" "copy" "from"
+                        "--device" device
+                        "--domain-type" "appDataContainer"
+                        "--domain-identifier" identifier
+                        "--source" "Documents/console.log"
+                        "--destination" (uiop:native-namestring destination))
+                  :ignore-error-status t)
+           (declare (ignore out err))
+           (and (zerop code) (probe-file destination)
+                (uiop:read-file-string destination)))
+      (ignore-errors (delete-file destination)))))
+
+(defun run-in-simulator (system &key (console t) until (seconds *console-seconds*))
+  "Build SYSTEM if it needs it, install its simulator bundle, and launch it.
+
+With CONSOLE, the default, returns what the app printed: the console attach
+first, and when that pty dropped everything, Documents/console.log out of the
+app's container, which the runtime keeps for exactly this."
+  (let* ((system (asdf:find-system system))
+         (identifier (app-identifier system))
+         (bundle (bundle-root-for system (find-platform :simulator)))
+         (device (require-booted-simulator)))
+    (asdf:make system)
+    (terminate-in-simulator identifier :device device)
+    (let ((output (launch-in-simulator bundle identifier :device device
+                                       :console console :until until
+                                       :seconds seconds)))
+      (if (and console (or (null output) (zerop (length (string-trim '(#\Space #\Newline) output)))))
+          (simulator-console-log identifier :device device)
+          output))))
+
 (defun parse-device-listing (text)
   "The identifiers of the devices in devicectl's table that can be reached now.
 

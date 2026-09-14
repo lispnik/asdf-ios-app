@@ -239,12 +239,23 @@ simulator by clang, with the install name an embedded framework must have."
                                 ;; The fixture's last line: wait for it,
                                 ;; not for a clock.
                                 :until "little_c_answer")))
-                   (is (search "FIXTURE: hello from Lisp on iOS" output))
-                   ;; The image is live even though every function in it was
-                   ;; compiled ahead of time.
-                   (is (search "defined at runtime" output))
-                   ;; And REQUIRE found the linked module rather than hunting
-                   ;; for a host .fas under the compiled-in ECLDIR.
-                   (is (search "sockets present: T" output))
-                   ;; And the embedded framework was found by dyld and called.
-                   (is (search "little_c_answer = 42" output)))))))))
+                   ;; The console is a pty simctl holds, and on a busy runner
+                   ;; it has dropped everything with the app plainly running.
+                   ;; The runtime keeps the same output in the app's own
+                   ;; container, so that is the second witness: read it, and
+                   ;; judge by whichever of the two has the fixture's lines.
+                   (let* ((kept (or (app::simulator-console-log
+                                     "org.asdf-ios-app.fixture" :device device)
+                                    ""))
+                          (output (if (search "FIXTURE:" output) output kept)))
+                     (is (search "FIXTURE: hello from Lisp on iOS" output))
+                     ;; The image is live even though every function in it was
+                     ;; compiled ahead of time.
+                     (is (search "defined at runtime" output))
+                     ;; And REQUIRE found the linked module rather than hunting
+                     ;; for a host .fas under the compiled-in ECLDIR.
+                     (is (search "sockets present: T" output))
+                     ;; And the embedded framework was found by dyld and called.
+                     (is (search "little_c_answer = 42" output))
+                     ;; And the kept console is a faithful copy on its own.
+                     (is (search "little_c_answer = 42" kept))))))))))

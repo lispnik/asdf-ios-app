@@ -3,12 +3,43 @@
 
 #import "ios-app-build.h"
 
+/* ------------------------------------------------------------------
+ * The application delegate: with scenes, nearly nothing.  UIKit asks it
+ * which class handles a scene; the answer is also in Info.plist, and the two
+ * agree.  The window is not made here -- an app delegate that makes its own
+ * window under a scene manifest gets two, one of them blank. */
+
 @implementation ECLAppDelegate
 
 - (BOOL)application:(UIApplication *)application
     didFinishLaunchingWithOptions:(NSDictionary *)options
 {
-  self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+  return YES;
+}
+
+- (UISceneConfiguration *)application:(UIApplication *)application
+    configurationForConnectingSceneSession:(UISceneSession *)session
+                                   options:(UISceneConnectionOptions *)options
+{
+  UISceneConfiguration *configuration =
+    [[UISceneConfiguration alloc] initWithName:@"Default" sessionRole:session.role];
+  configuration.delegateClass = ECLSceneDelegate.class;
+  return configuration;
+}
+
+@end
+
+/* ------------------------------------------------------------------
+ * The scene delegate: the window, the boot, and the entry point. */
+
+@implementation ECLSceneDelegate
+
+- (void)scene:(UIScene *)scene
+    willConnectToSession:(UISceneSession *)session
+                 options:(UISceneConnectionOptions *)options
+{
+  UIWindowScene *windowScene = (UIWindowScene *)scene;
+  self.window = [[UIWindow alloc] initWithWindowScene:windowScene];
 
   /* A root view controller before booting, so that a Lisp entry point which
      fails still leaves something on screen rather than a black rectangle with
@@ -18,7 +49,7 @@
   [self.window makeKeyAndVisible];
 
   /* Boots the image and calls the application's entry point, which runs on
-     this thread and must RETURN -- the run loop has not started yet. */
+     this thread and must RETURN -- the run loop is between events. */
   [ECLBoot boot];
 
   /* An entry point that signalled leaves an empty window and a message on a
@@ -28,7 +59,7 @@
   NSString *failure = [ECLBoot evaluate:@"(ios-app-runtime:boot-failure)"];
   if (failure.length > 2) {          /* "" prints as two quote characters */
     [self showBootFailure:failure];
-    return YES;
+    return;
   }
 
   /* If the entry point installed a view controller of its own, use it. */
@@ -40,7 +71,6 @@
   if (controllerClass != Nil) {
     self.window.rootViewController = [[controllerClass alloc] init];
   }
-  return YES;
 }
 
 - (void)showBootFailure:(NSString *)failure

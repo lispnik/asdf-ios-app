@@ -159,6 +159,7 @@ directory for both, which is right for nothing built from source."
                                       (embedded-framework-path entry source platform))
                                     (app-embedded-frameworks system))
        :link-flags (app-link-flags system)
+       :delegate (app-delegate-class system)
        :signing-identity (app-identity system)
        :team-id (app-team-id system)
        :provisioning-profile (and (app-provisioning-profile system)

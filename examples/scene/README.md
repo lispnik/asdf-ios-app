@@ -5,11 +5,11 @@ lifecycle event reported to Lisp. And an icon.
 
 <img src="../../doc/screenshots/scene.png" width="300" alt="A log of scene lifecycle events with times: will-connect, interface-built, did-become-active, will-resign-active, did-enter-background, will-enter-foreground, did-become-active; above it a line counting returns to the foreground and seconds spent in the background.">
 
-The delegate asdf-ios-app ships makes its window the pre-iOS 13 way, and
-UIKit now warns at every launch that the UIScene lifecycle will soon be
-required. `SceneAppDelegate.m` is the scene-based pair: the application
-delegate only names the scene delegate, and the scene delegate makes the
-window, boots the image, and calls `scene-ios:lifecycle` for each event.
+The delegate asdf-ios-app ships is scene based, and `SceneAppDelegate.m` is
+what an app does when it wants the lifecycle for itself: the same pair, the
+application delegate only naming the scene delegate and the scene delegate
+making the window and booting the image, but this one also calls
+`scene-ios:lifecycle` for each event, which the shipped one does not.
 Three options in `scene.asd` make that happen, none used by any other
 example:
 

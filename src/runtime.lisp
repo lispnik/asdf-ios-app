@@ -25,6 +25,7 @@
            #:detach-documentation-file
            #:start-remote-repl
            #:*remote-repl-port*
+           #:*console-log*
            #:boot-failure))
 
 (in-package #:ios-app-runtime)
@@ -175,6 +176,40 @@ one is reported and skipped rather than being allowed to stop the launch."
                   (finish-output))))))))))
 
 ;;; ------------------------------------------------------------------
+;;; the console, kept
+
+(defvar *console-log* nil
+  "Where the image's standard and error output are also being written, or NIL.
+
+On a phone there is no console behind an app: a device console attach
+relays nothing the app prints, and the simulator's is a pty simctl holds and
+sometimes drops.  So from boot on, everything written to *STANDARD-OUTPUT*
+and *ERROR-OUTPUT* also goes to Documents/console.log in the app's own
+container, superseded at each launch, where SIMULATOR-CONSOLE-LOG and
+DEVICE-CONSOLE-LOG read it back.  Lisp output only: what ECL's C runtime
+prints to file descriptor 1 is not routed through these streams.")
+
+(defun keep-console (&optional (name "console.log"))
+  "Mirror *STANDARD-OUTPUT* and *ERROR-OUTPUT* into NAME under HOME.
+
+HOME is the app's Documents directory: ECLBoot sets it so before cl_boot.
+A failure to open the file is reported and otherwise ignored -- a log is a
+convenience, and the boot must not depend on one."
+  (let ((home (ext:getenv "HOME")))
+    (when home
+      (let ((path (concatenate 'string (string-right-trim "/" home) "/" name)))
+        (handler-case
+            (let ((file (open path :direction :output :if-exists :supersede
+                                   :if-does-not-exist :create
+                                   :external-format :utf-8)))
+              (setf *standard-output* (make-broadcast-stream *standard-output* file)
+                    *error-output* (make-broadcast-stream *error-output* file)
+                    *console-log* path))
+          (error (e)
+            (format t "~&; could not keep the console in ~a: ~a~%" path e)
+            (finish-output)))))))
+
+;;; ------------------------------------------------------------------
 ;;; boot
 
 (defun detach-documentation-file ()
@@ -236,9 +271,12 @@ not a rebuild with print statements in it.")
           "The image is up; the interface is not. Fix and rebuild, or attach a
 remote REPL with :REMOTE-REPL T and build it by hand."))
 
-(defun %boot (&key entry-point manifest remote-repl (guard-callbacks t))
+(defun %boot (&key entry-point manifest remote-repl (guard-callbacks t)
+                   (keep-console t))
   "Called from ECLBoot once the image is up. Returns; the run loop follows."
   (setf *bundle-path* (symbol-value (find-symbol "*BUNDLE-PATH*" "CL-USER")))
+  (when keep-console
+    (keep-console))
   (detach-documentation-file)
   (when guard-callbacks
     (guard-dynamic-callbacks))

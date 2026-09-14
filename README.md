@@ -387,7 +387,7 @@ lands on the `Info.plist`. Reserved names are refused.
 | `:bundle-embedded-frameworks` | — | `.framework` directories to ship in `Frameworks/`, link, and sign; `~a` in a path is the platform name |
 | `:bundle-objc-sources` | — | your own `.m`, compiled after ours |
 | `:bundle-objc-main` | — | replaces `ECLMain.m` |
-| `:bundle-app-delegate` | `"ECLAppDelegate"` | |
+| `:bundle-app-delegate` | `"ECLAppDelegate"` | scene based; a delegate of your own brings its own scene manifest, or none |
 | `:bundle-output-directory` | `<system>/build/` | |
 | `:bundle-icon` | — | a `.xcassets` directory, compiled by `actool` |
 | `:remote-repl` | `nil` | `t`, a port, or a plist; see below |
@@ -398,8 +398,16 @@ lands on the `Info.plist`. Reserved names are refused.
 
 `:entry-point` is stock ASDF, and **means something different here**. It is not a
 toplevel that runs to completion: it is called once, on the main thread, from
-`-application:didFinishLaunchingWithOptions:`, and it must *return* so the run
-loop can start.
+the scene delegate's `-scene:willConnectToSession:options:`, and it must
+*return* so the run loop can go on.
+
+The shipped delegate is scene based. `ECLAppDelegate` names `ECLSceneDelegate`
+and does nothing else; the scene delegate makes the window, boots the image,
+calls the entry point, and puts a failed one on screen. The generated
+`Info.plist` carries the `UIApplicationSceneManifest` that points UIKit at it,
+and only then: an app that sets `:bundle-app-delegate` decides about scenes
+itself and supplies its own manifest through `:bundle-info-plist`, as
+`examples/scene` does.
 
 ### Embedding a framework
 
@@ -655,9 +663,25 @@ reasonable starting point if you have artwork but no Xcode.
 ## Deploying
 
 ```lisp
+(asdf-ios-app:run-in-simulator "attractor")          ; build, install, launch; returns the output
 (asdf-ios-app::install-in-simulator bundle)
 (asdf-ios-app::launch-in-simulator bundle "com.example.attractor" :console t)
 (asdf-ios-app:install-on-device bundle)
+```
+
+**What the app prints is kept.** There is no console behind an app on a
+phone -- a `devicectl` console attach relays nothing the app writes -- and
+the simulator's is a pty `simctl` holds and sometimes drops. So from boot on,
+everything written to `*standard-output*` and `*error-output*` also goes to
+`Documents/console.log` in the app's own container, superseded at each launch.
+`simulator-console-log` and `device-console-log` read it back by bundle
+identifier; `run-in-simulator` falls back to it when the console attach came
+up empty. Lisp output only: what ECL's C runtime prints to file descriptor 1
+does not pass through those streams.
+
+```lisp
+(asdf-ios-app:simulator-console-log "com.example.attractor")
+(asdf-ios-app:device-console-log "com.example.attractor")   ; the phone, unlocked
 ```
 
 A device needs Developer Mode enabled on the phone (Settings › Privacy &

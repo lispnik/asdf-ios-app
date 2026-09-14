@@ -7,7 +7,9 @@
    ;; build driver
    #:make-app
    #:run-in-simulator
+   #:simulator-console-log
    #:install-on-device
+   #:device-console-log
    #:export-ipa
    ;; toolchain
    #:bootstrap-ecl

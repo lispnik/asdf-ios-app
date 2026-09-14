@@ -38,6 +38,7 @@
   static-libraries                      ; extra .a to link
   embedded-frameworks                   ; .framework directories to ship and link
   link-flags                            ; extra clang arguments
+  delegate                              ; :BUNDLE-APP-DELEGATE, NIL for ours
   (signing-identity :automatic)         ; :AUTOMATIC, NIL, "-", or an identity
   team-id
   provisioning-profile
@@ -137,6 +138,11 @@ Reduce to the leading numeric components."
   (or (cdr (assoc keyword +device-family-numbers+))
       (barf "Unknown device family ~s. Expected :IPHONE or :IPAD." keyword)))
 
+(defun shipped-delegate-p (spec)
+  "Whether the application delegate is the one asdf-ios-app ships."
+  (let ((delegate (spec-delegate spec)))
+    (or (null delegate) (equal delegate "ECLAppDelegate"))))
+
 (defun info-plist-form (spec)
   (let* ((platform (spec-platform spec))
          (base
@@ -181,6 +187,19 @@ Reduce to the leading numeric components."
                  `(("UILaunchScreen" . (:dict))))
              ,@(when (spec-status-bar-hidden-p spec)
                  `(("UIStatusBarHidden" . :true)))
+             ;; UIScene is the lifecycle, and this is how UIKit finds the
+             ;; scene delegate the shipped shim carries.  Only for that shim:
+             ;; an application with a delegate of its own decides for itself
+             ;; whether it has scenes, and says so through :BUNDLE-INFO-PLIST
+             ;; as examples/scene does.
+             ,@(when (shipped-delegate-p spec)
+                 `(("UIApplicationSceneManifest"
+                    . (:dict ("UIApplicationSupportsMultipleScenes" . :false)
+                             ("UISceneConfigurations"
+                              . (:dict ("UIWindowSceneSessionRoleApplication"
+                                        . (:array
+                                           (:dict ("UISceneConfigurationName" . "Default")
+                                                  ("UISceneDelegateClassName" . "ECLSceneDelegate"))))))))))
              ,@(when (spec-category spec)
                  `(("LSApplicationCategoryType" . ,(spec-category spec))))
              ,@(when (spec-copyright spec)
