@@ -17,7 +17,7 @@
 # BOOTSTRAP-ECL applies it to the cross-built prefixes itself, from
 # tools/patches/.
 #
-# Two jobs.  The first is the host-side suite: seconds, no toolchain, and it
+# Three jobs.  The first is the host-side suite: seconds, no toolchain, and it
 # covers everything but the part this system is for.  The second is that part:
 # it has BOOTSTRAP-ECL cross-build ECL for the simulator -- a host ECL from the
 # same tree first, because the cross build reuses its dpp and ecl_min -- boots
@@ -25,6 +25,16 @@
 # link, sign, package and launch a real bundle.  Cold that is twenty minutes;
 # the prefixes are cached by the ECL commit they were built from, so it is
 # twenty minutes once per ECL revision and a few minutes otherwise.
+#
+# The third builds every example in examples/ for the simulator, with the
+# prefixes the second one cached.  The suite's fixture is one small app; the
+# examples are thirty-six real ones against every framework the README lists,
+# and four of the last fourteen were broken at their first build with nothing
+# here to say so.  Nothing is launched -- a build is what a regression in the
+# bridge or the build system breaks, and a launch needs a screenshot to judge.
+# The examples are sharded across runners by position in the sorted list, and
+# every one in a shard is attempted before the shard reports, so one failure
+# names every failure.
 #
 # The device is not built for.  Signing needs an identity and a profile a
 # runner does not have, and there is no phone on the other end of it.
@@ -167,3 +177,128 @@ jobs:
             --eval '(asdf:initialize-source-registry (list :source-registry (list :directory (uiop:getcwd)) (list :tree (merge-pathnames "examples/" (uiop:getcwd))) :ignore-inherited-configuration))' \
             --eval '(asdf:test-system :asdf-ios-app)' \
             --eval '(ext:quit 0)'
+
+  examples:
+    name: examples · iphonesimulator (shard ${{ matrix.shard }} of 4)
+    runs-on: macos-latest
+    needs: cross
+    # Nine examples a shard, each a cross-compile of objc and the example on
+    # top of it, three or four minutes apiece on a runner.  Loose enough for
+    # a cold Swift toolchain, tight enough that a hung build is a failure.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      ECL_REPOSITORY: https://github.com/lispnik/ecl.git
+      ECL_BRANCH: develop
+      SHARDS: "4"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # All but four of the examples are written against objc, which lives in
+      # its own repository; its ocicl.csv names what it needs, and slynk is
+      # what the two live-programming examples add.  Checked out under the
+      # workspace so one :tree covers objc, its dependencies, and slynk.
+      - name: Check out objc
+        uses: actions/checkout@v5
+        with:
+          repository: lispnik/objc
+          path: objc-src
+
+      - name: Install ECL, to drive the build
+        run: brew install ecl
+
+      - name: Resolve the ECL branch to a commit
+        id: ecl
+        run: |
+          sha=$(git ls-remote "$ECL_REPOSITORY" "refs/heads/$ECL_BRANCH" | cut -f1)
+          test -n "$sha" || { echo "::error::$ECL_REPOSITORY has no branch $ECL_BRANCH" >&2; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # The same key the cross job saved under; that job ran first, so a
+      # miss here is a bug in the key, not a cold cache, and is reported as
+      # one rather than spending twenty minutes rebuilding.
+      - name: Restore the cross-built ECL
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/asdf-ios-app/ecl-ios/host
+            ~/.cache/asdf-ios-app/ecl-ios/iphonesimulator
+            ~/.cache/asdf-ios-app/toolchain.sexp
+          key: ecl-ios-${{ runner.os }}-${{ runner.arch }}-${{ steps.ecl.outputs.sha }}-${{ hashFiles('tools/build-ecl-ios.sh', 'tools/patches/*') }}
+          fail-on-cache-miss: true
+
+      # ocicl's installer is an SBCL program, but what it produces is a
+      # directory of source.  So it is installed with SBCL and used from ECL,
+      # exactly as objc's own CI does.
+      - name: Install SBCL, for ocicl only
+        run: brew install sbcl
+
+      - name: Install ocicl and objc's dependencies
+        working-directory: objc-src
+        run: |
+          git clone --depth 1 https://github.com/ocicl/ocicl.git "$HOME/ocicl-src"
+          ( cd "$HOME/ocicl-src" && sbcl --non-interactive --load setup.lisp )
+          export PATH="$HOME/.local/bin:$PATH"
+          ocicl setup
+          # ocicl exits 0 when a download fails and ghcr.io fails often
+          # enough to matter, so: several attempts, and a failure here, on
+          # the line that names the package, rather than two steps later as
+          # "Component not found".
+          for attempt in 1 2 3 4 5; do
+            ocicl install 2>&1 | tee ocicl-install.log
+            ocicl install slynk 2>&1 | tee -a ocicl-install.log
+            if ! grep -q "failed to install" ocicl-install.log; then
+              break
+            fi
+            echo "::warning::ocicl install attempt $attempt did not get every package"
+            sleep 30
+          done
+          if grep -q "failed to install" ocicl-install.log; then
+            echo "::error::ocicl could not install every dependency after 5 attempts" >&2
+            exit 1
+          fi
+
+      - name: Report the toolchain the builds will see
+        run: |
+          ecl --norc \
+            --eval '(require :asdf)' \
+            --eval '(asdf:initialize-source-registry (list :source-registry (list :directory (uiop:getcwd)) :ignore-inherited-configuration))' \
+            --eval '(asdf:load-system :asdf-ios-app)' \
+            --eval '(asdf-ios-app:describe-toolchain)' \
+            --eval '(ext:quit)'
+
+      # The systems to build are the .asd files that declare :ios-app-system
+      # -- the directory name is not always the system name (hello/ holds
+      # hello-ios) -- sorted, and this shard takes every fourth.  Each is a
+      # fresh ECL, so one example's failure cannot leak into the next, and
+      # every failure is reported before the shard exits non-zero.
+      - name: Build this shard's examples
+        run: |
+          i=0; failed=""
+          for asd in $(grep -l "ios-app-system" examples/*/*.asd | sort); do
+            if [ $((i % SHARDS)) -eq "${{ matrix.shard }}" ]; then
+              name=$(basename "$asd" .asd)
+              echo "::group::$name"
+              if ecl --norc \
+                   --eval '(require :asdf)' \
+                   --eval '(asdf:initialize-source-registry (list :source-registry (list :tree (uiop:getcwd)) :ignore-inherited-configuration))' \
+                   --eval '(handler-bind ((warning (function muffle-warning))) (asdf:load-system :asdf-ios-app))' \
+                   --eval "(handler-bind ((warning (function muffle-warning))) (asdf:make \"$name\"))" \
+                   --eval '(ext:quit 0)'; then
+                echo "built $name"
+              else
+                echo "::error::$name did not build"
+                failed="$failed $name"
+              fi
+              echo "::endgroup::"
+            fi
+            i=$((i + 1))
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::did not build:$failed" >&2
+            exit 1
+          fi
