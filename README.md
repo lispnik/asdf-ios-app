@@ -132,7 +132,7 @@ you can write. There are more below.
   <th align="center">keychain</th>
 </tr>
 <tr>
-  <td><img src="doc/screenshots/compute.png" width="210" alt="A Julia set fractal in orange, yellow and blue filling a square, under it a line naming the parameter, the size and the milliseconds the GPU took."></td>
+  <td><img src="doc/screenshots/compute.png" width="210" alt="A Julia set fractal in yellow and purple on blue filling a square, under it a line naming the parameter, the size and the milliseconds the GPU took."></td>
   <td><img src="doc/screenshots/report.png" width="210" alt="A Quick Look preview of a one-page PDF titled The image, as a report, with a bar chart of package symbol counts in eight colours and a footer line."></td>
   <td><img src="doc/screenshots/keychain.png" width="210" alt="A twelve-character token in monospace and the line launch 5 of this install, under it a status line saying it was read back from the Keychain, and buttons to read again or forget it."></td>
 </tr>

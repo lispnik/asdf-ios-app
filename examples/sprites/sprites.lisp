@@ -34,35 +34,60 @@
   (:y :float))
 
 ;;; ------------------------------------------------------------------
+;;; vector_float2, which Objective-C cannot describe
+;;;
+;;; GameplayKit's positions are SIMD vector_float2s, and Clang encodes a SIMD
+;;; type as NOTHING: -[GKAgent2D setPosition:] is "v24@0:816", an empty
+;;; type between the offsets, so the runtime's signature says the method
+;;; takes no arguments at all.  The bridge's list form of a method name is
+;;; for exactly this -- the signature spelled out where the runtime cannot --
+;;; and the type to spell is :double: a vector_float2 is eight bytes that
+;;; travel in a SIMD register, which is precisely how a double travels on
+;;; arm64 and x86-64 alike.  So a point goes across as the double that
+;;; occupies the same eight bytes, and comes back the same way.
+
+(defun simd2 (x y)
+  "The double whose eight bytes are the floats X and Y: a vector_float2."
+  (cffi:with-foreign-object (p :float 2)
+    (setf (cffi:mem-aref p :float 0) (float x 1.0)
+          (cffi:mem-aref p :float 1) (float y 1.0))
+    (cffi:mem-ref p :double)))
+
+(defun simd2-parts (double)
+  "The floats packed in DOUBLE by SIMD2, as (x . y)."
+  (cffi:with-foreign-object (p :double)
+    (setf (cffi:mem-ref p :double) double)
+    (cons (cffi:mem-aref p :float 0) (cffi:mem-aref p :float 1))))
+
+(defun set-simd-position (object x y)
+  (objc:invoke object '("setPosition:" (:double)) (simd2 x y)))
+
+(defun simd-position (object)
+  (simd2-parts (objc:invoke object '("position" () :result-type :double))))
+
+;;; ------------------------------------------------------------------
 ;;; obstacles, a graph, and a path through it
 
 (defparameter +obstacles+
   '((120 120 34) (250 200 40) (110 300 36) (260 360 30))
   "(x y radius): what the leader must go around.")
 
-(defun find-path ()
+(defun find-path (obstacle-nodes)
   "GKObstacleGraph around the obstacles, then the path from one corner to
-the opposite one: GameplayKit's pathfinder, over a graph Lisp built."
-  (let* ((obstacles (coerce (loop for (x y r) in +obstacles+
-                                  collect (objc:invoke (objc:invoke (objc:invoke "GKCircleObstacle" "alloc")
-                                                                    "initWithRadius:" (float r 1.0))
-                                                       "autorelease")
-                                    into list
-                                  finally (return (loop for obstacle in list
-                                                        for (x y) in +obstacles+
-                                                        do (objc:invoke obstacle "setPosition:" (vector x y))
-                                                        collect obstacle)))
-                            'vector))
+the opposite one: GameplayKit's pathfinder, over a graph Lisp built.  The
+graph takes polygon obstacles only, and SpriteKit makes those from the
+bounds of the nodes already drawn."
+  (let* ((obstacles (objc:invoke "SKNode" "obstaclesFromNodeBounds:" (coerce obstacle-nodes 'vector)))
          (graph (objc:invoke "GKObstacleGraph" "graphWithObstacles:bufferRadius:" obstacles 24.0))
-         (from (objc:invoke "GKGraphNode2D" "nodeWithPoint:" (vector 30.0 30.0)))
-         (to (objc:invoke "GKGraphNode2D" "nodeWithPoint:" (vector (- +width+ 30) (- +height+ 30)))))
+         (node-with-point '("nodeWithPoint:" (:double) :result-type objc:objc-object-pointer))
+         (from (objc:invoke "GKGraphNode2D" node-with-point (simd2 30.0 30.0)))
+         (to (objc:invoke "GKGraphNode2D" node-with-point (simd2 (- +width+ 30) (- +height+ 30)))))
     (objc:invoke graph "connectNodeUsingObstacles:" from)
     (objc:invoke graph "connectNodeUsingObstacles:" to)
     (let ((nodes (objc:invoke graph "findPathFromNode:toNode:" from to)))
       (loop for i below (objc:invoke nodes "count")
             for node = (objc:invoke nodes "objectAtIndex:" i)
-            for point = (objc:invoke node "position")
-            collect (cons (aref point 0) (aref point 1))))))
+            collect (simd-position node)))))
 
 ;;; ------------------------------------------------------------------
 ;;; the scene: a Lisp subclass of SKScene, updated every frame
@@ -72,7 +97,7 @@ the opposite one: GameplayKit's pathfinder, over a graph Lisp built."
   (:objc-superclass-name "SKScene"))
 
 (defun agent-position (agent)
-  (let ((p (objc:invoke agent "position"))) (cons (aref p 0) (aref p 1))))
+  (simd-position agent))
 
 (objc:define-objc-method ("update:" :void)
     ((self flock-scene) (time :double))
@@ -103,10 +128,10 @@ the opposite one: GameplayKit's pathfinder, over a graph Lisp built."
 
 (defun make-agent (x y &key leader)
   (let ((agent (objc:alloc-init-object "GKAgent2D")))
-    (objc:invoke agent "setPosition:" (vector (float x 1.0) (float y 1.0)))
-    (objc:invoke agent "setMaxSpeed:" (if leader 70.0 90.0))
+    (set-simd-position agent x y)
+    (objc:invoke agent "setMaxSpeed:" (if leader 70.0 (+ 80.0 (random 30.0))))
     (objc:invoke agent "setMaxAcceleration:" (if leader 40.0 60.0))
-    (objc:invoke agent "setRadius:" 8.0)
+    (objc:invoke agent "setRadius:" 10.0)
     (objc:invoke agent "setMass:" 0.2)
     agent))
 
@@ -114,18 +139,27 @@ the opposite one: GameplayKit's pathfinder, over a graph Lisp built."
   (apply #'objc:invoke "GKGoal" name arguments))
 
 (defun set-behaviours (leader others)
-  "The leader seeks its next waypoint; the flock coheres, separates, aligns,
-and seeks the leader: GameplayKit's goals, Lisp's weights."
-  (let* ((others-vector (coerce others 'vector))
-         (leader-goal (goal "goalToSeekAgent:" leader))
-         (behaviour (objc:invoke "GKBehavior" "behaviorWithGoals:andWeights:"
-                                 (vector (goal "goalToCohereWithAgents:maxDistance:maxAngle:" others-vector 80.0 (float pi 1.0))
-                                         (goal "goalToSeparateFromAgents:maxDistance:maxAngle:" others-vector 24.0 (float pi 1.0))
-                                         (goal "goalToAlignWithAgents:maxDistance:maxAngle:" others-vector 60.0 (float pi 1.0))
-                                         leader-goal
-                                         (goal "goalToWander:" 20.0))
-                                 (vector 1.0 3.0 1.0 2.0 0.5))))
-    (dolist (agent others) (objc:invoke agent "setBehavior:" behaviour))))
+  "Every follower coheres with, separates from and aligns with the others,
+wanders a little, and intercepts the leader -- each with its own prediction
+horizon, so they string out behind rather than pile onto one point.
+GameplayKit's goals, Lisp's weights.  The angles are the full circle: a goal's
+maxAngle is a field of view, and half a circle leaves whoever is behind you
+unseen, separation included."
+  (let ((others-vector (coerce others 'vector))
+        (all-round (float (* 2 pi) 1.0)))
+    (loop for agent in others
+          for i from 0
+          do (objc:invoke agent "setBehavior:"
+                          (objc:invoke "GKBehavior" "behaviorWithGoals:andWeights:"
+                                       (vector (goal "goalToSeparateFromAgents:maxDistance:maxAngle:" others-vector 50.0 all-round)
+                                               (goal "goalToCohereWithAgents:maxDistance:maxAngle:" others-vector 140.0 all-round)
+                                               (goal "goalToAlignWithAgents:maxDistance:maxAngle:" others-vector 80.0 all-round)
+                                               (goal "goalToInterceptAgent:maxPredictionTime:" leader (+ 0.2d0 (* 0.15d0 i)))
+                                               (goal "goalToWander:" 30.0))
+                                       ;; An NSArray of NSNumbers: a vector becomes an
+                                       ;; array, but its elements must already be objects.
+                                       (map 'vector (lambda (weight) (objc:invoke "NSNumber" "numberWithFloat:" weight))
+                                            '(10.0 1.0 1.0 1.5 1.5)))))))
 
 (defvar *leader-tracker* nil)
 
@@ -137,7 +171,7 @@ and seeks the leader: GameplayKit's goals, Lisp's weights."
 
 (defun move-tracker ()
   (let ((target (nth *waypoint* *path*)))
-    (when target (objc:invoke *leader-tracker* "setPosition:" (vector (float (car target) 1.0) (float (cdr target) 1.0))))))
+    (when target (set-simd-position *leader-tracker* (car target) (cdr target)))))
 
 ;;; ------------------------------------------------------------------
 ;;; the scene, built
@@ -151,14 +185,15 @@ and seeks the leader: GameplayKit's goals, Lisp's weights."
   (let ((scene (objc:invoke (objc:invoke (make-instance 'flock-scene) "initWithSize:" (vector +width+ +height+)) "autorelease")))
     (objc:invoke scene "setBackgroundColor:" (ui:color 0.06 0.07 0.12))
     ;; Obstacles, drawn.
-    (loop for (x y r) in +obstacles+
-          do (let ((circle (objc:invoke "SKShapeNode" "shapeNodeWithCircleOfRadius:" (float r 1d0))))
-               (objc:invoke circle "setPosition:" (vector x y))
-               (objc:invoke circle "setFillColor:" (ui:color 0.25 0.25 0.35))
-               (objc:invoke circle "setStrokeColor:" (ui:color 0.4 0.4 0.55))
-               (objc:invoke scene "addChild:" circle)))
-    ;; The path, drawn.
-    (setf *path* (find-path))
+    (let ((circles (loop for (x y r) in +obstacles+
+                         collect (let ((circle (objc:invoke "SKShapeNode" "shapeNodeWithCircleOfRadius:" (float r 1d0))))
+                                   (objc:invoke circle "setPosition:" (vector x y))
+                                   (objc:invoke circle "setFillColor:" (ui:color 0.25 0.25 0.35))
+                                   (objc:invoke circle "setStrokeColor:" (ui:color 0.4 0.4 0.55))
+                                   (objc:invoke scene "addChild:" circle)
+                                   circle))))
+      ;; The path, drawn.
+      (setf *path* (find-path circles)))
     (let ((path (objc:invoke "UIBezierPath" "bezierPath")))
       (loop for (x . y) in *path* for first = t then nil
             do (objc:invoke path (if first "moveToPoint:" "addLineToPoint:") (vector x y)))

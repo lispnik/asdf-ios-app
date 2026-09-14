@@ -3,7 +3,8 @@
 Two Lisp images finding each other and evaluating each other's forms, with
 no server.
 
-<img src="../../doc/screenshots/peers.png" width="300" alt="A log on one phone: advertising, found the other peer and invited it, connected, then a form sent and the other phone's answer, and a form the other phone asked with this phone's answer; a field holding a form and an Ask peers button.">
+<img src="../../doc/screenshots/peers.png" width="220" alt="A log on one phone: advertising, found the other peer and invited it, connected, then a form sent and the other phone's answer, and a form the other phone asked with this phone's answer; a field holding a form and an Ask peers button.">
+<img src="../../doc/screenshots/peers-beta.png" width="220" alt="The other phone's log, mirror image: found Alpha and invited it, connected, asked (expt 2 100) and got the 31-digit answer, and was asked for the Lisp version in turn.">
 
 MultipeerConnectivity connects nearby devices over Wi-Fi and Bluetooth.
 Each phone here both advertises and browses for the same service type; a

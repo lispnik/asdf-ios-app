@@ -2,7 +2,7 @@
 
 Metal on iOS: a compute kernel written and dispatched from Lisp.
 
-<img src="../../doc/screenshots/compute.png" width="300" alt="A Julia set fractal in orange, yellow and blue filling a square, under it a line naming the parameter, the size and the milliseconds the GPU took.">
+<img src="../../doc/screenshots/compute.png" width="300" alt="A Julia set fractal in yellow and purple on blue filling a square, under it a line naming the parameter, the size and the milliseconds the GPU took.">
 
 The kernel is a string in `compute.lisp`, compiled by the device at run
 time; no shader file in the bundle. Lisp picks the Julia set's parameter,
