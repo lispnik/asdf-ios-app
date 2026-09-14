@@ -41,6 +41,16 @@ for -- which is exactly the sort of test that passes while proving nothing."
     (is= "changed" (plist-entry merged "B"))
     (is= "new" (plist-entry merged "C"))))
 
+(deftest plistbuddy-arguments-survive-spaces-and-quotes
+  ;; A bundle name with a space puts one in the staging path, and PlistBuddy
+  ;; splits an unquoted command on it.
+  (is= "\"/tmp/Fixture.app/partial.plist\""
+       (app::plistbuddy-argument "/tmp/Fixture.app/partial.plist"))
+  (is= "\"/tmp/UPC Logger.app/partial.plist\""
+       (app::plistbuddy-argument "/tmp/UPC Logger.app/partial.plist"))
+  (is= "\"/tmp/odd \\\"dir\\\"/back\\\\slash.plist\""
+       (app::plistbuddy-argument "/tmp/odd \"dir\"/back\\slash.plist")))
+
 ;;; ------------------------------------------------------------------
 ;;; versions
 

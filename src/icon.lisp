@@ -58,6 +58,21 @@ Assets.car with no icon in it and no error."
         collect "--target-device"
         collect (string-downcase (symbol-name family))))
 
+(defun plistbuddy-argument (string)
+  "STRING as one argument inside a PlistBuddy -c command.
+
+PlistBuddy splits its command on whitespace itself, so a path handed over bare
+is cut at the first space: a bundle called \"UPC Logger\" had its merge read as
+Merge \"Logger.app...\", which does not exist. Double quotes keep it whole, and
+backslash escapes keep a quote or backslash in the path from ending them early."
+  (with-output-to-string (out)
+    (write-char #\" out)
+    (loop for char across string
+          do (when (member char '(#\" #\\))
+               (write-char #\\ out))
+             (write-char char out))
+    (write-char #\" out)))
+
 (defun install-icon (spec catalogue)
   "Compile CATALOGUE into the bundle and merge the keys it needs into Info.plist.
 
@@ -93,7 +108,8 @@ Must run after WRITE-INFO-PLIST, since it merges into what that wrote."
                 ;; succeeds, and those notices are worth seeing.
                 :echo-error t)
            (run (list "/usr/libexec/PlistBuddy"
-                      "-c" (format nil "Merge ~a" (uiop:native-namestring partial))
+                      "-c" (format nil "Merge ~a"
+                                   (plistbuddy-argument (uiop:native-namestring partial)))
                       (uiop:native-namestring (info-plist-path spec))))
            (lint-plist (info-plist-path spec)))
       (ignore-errors (delete-file partial)))))
