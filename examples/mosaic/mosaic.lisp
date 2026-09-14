@@ -43,7 +43,8 @@ edge in points, from the square root of the count so that area follows it."
 
 ;;; CGSize is cocoa:ns-size here, as it is in the runtime.  UIEdgeInsets
 ;;; is not in the COCOA package, so it is declared: four doubles, in the
-;;; order UIKit lays them out.
+;;; order UIKit lays them out.  Declared, it is used like the Cocoa ones: a
+;;; vector out of a method, a vector into a message.
 (objc:define-objc-struct (ui-edge-insets (:foreign-name "UIEdgeInsets"))
   (:top :double)
   (:left :double)
@@ -99,24 +100,14 @@ edge in points, from the square root of the count so that area follows it."
   (let ((side (third (nth (objc:invoke path "item") *items*))))
     (vector side side)))
 
-(defvar *insets* nil
-  "Foreign memory for one UIEdgeInsets, allocated on first use -- not at load
-time, which runs on the Mac during the native pass -- and reused: the bridge
-copies a returned structure out before the method's caller sees it.")
-
 (objc:define-objc-method ("collectionView:layout:insetForSectionAtIndex:" (:struct ui-edge-insets))
     ((self mosaic-source) (view objc:objc-object-pointer) (layout objc:objc-object-pointer)
      (section (:signed :long-long)))
   (declare (ignore view layout section))
-  ;; A declared structure is returned as a pointer to its bytes.  The Cocoa
-  ;; ones, ns-size and ns-rect, may be vectors; anything declared with
-  ;; DEFINE-OBJC-STRUCT is filled in foreign memory, which is what the
-  ;; LispWorks manual's own example does too.
-  (unless *insets*
-    (setf *insets* (cffi:foreign-alloc :double :count 4)))
-  (loop for value in '(8d0 0d0 8d0 0d0) for i from 0
-        do (setf (cffi:mem-aref *insets* :double i) value))
-  *insets*)
+  ;; A declared structure, returned as a sequence with one element per field:
+  ;; top, left, bottom, right.  The bridge writes each at its field's offset,
+  ;; as it always did for the Cocoa structures.
+  #(8 0 8 0))
 
 (objc:define-objc-method ("collectionView:layout:minimumInteritemSpacingForSectionAtIndex:" :double)
     ((self mosaic-source) (view objc:objc-object-pointer) (layout objc:objc-object-pointer)
@@ -166,6 +157,9 @@ copies a returned structure out before the method's caller sees it.")
                  (label (format nil "~d packages; each tile's area is its symbol count. Sizes and insets come from a Lisp delegate, as CGSize and UIEdgeInsets by value." (length *items*)) :size 13))
     (objc:invoke view "setTranslatesAutoresizingMaskIntoConstraints:" nil)
     (objc:invoke view "setBackgroundColor:" (ui:system-color "systemBackground"))
+    ;; The argument direction of the same structure: a vector where the
+    ;; message wants a UIEdgeInsets by value.
+    (objc:invoke view "setContentInset:" #(0 0 24 0))
     (objc:invoke view "registerClass:forCellWithReuseIdentifier:"
                  (objc:invoke "UICollectionViewCell" "class") "tile")
     (setf *source* (ui:keep (make-instance 'mosaic-source)))
