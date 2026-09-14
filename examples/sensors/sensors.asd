@@ -18,7 +18,13 @@
   ;; each of the three reports itself unavailable, and the device build is
   ;; the one that matters.  A device build takes its signing from the
   ;; environment, as the attractor examples do.
-  :bundle-platforms (:simulator :device)
+  ;; The device is built for only when it can be signed for, which is when
+  ;; the environment says how -- as closure-probe does.  A runner has no
+  ;; identity, no profile, and no iphoneos ECL prefix, and this is the one
+  ;; example that is really about the phone.
+  :bundle-platforms #.(if (uiop:getenv "IOS_SIGNING_IDENTITY")
+                          '(:simulator :device)
+                          '(:simulator))
   :bundle-orientations (:portrait)
   :bundle-frameworks ("UIKit" "Foundation" "CoreGraphics" "CoreMotion" "LocalAuthentication")
   :bundle-info-plist (("NSFaceIDUsageDescription" . "To show that Face ID can be asked for from Lisp.")
