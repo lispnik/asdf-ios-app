@@ -25,7 +25,9 @@ signature carrying get-task-allow is refused by SpringBoard at launch:
   The request was denied by service delegate (SBMainWorkspace).
 
 which says nothing about entitlements and sends you looking at Info.plist. An
-Xcode-built simulator app carries no entitlements at all; this matches it."
+Xcode-built simulator app carries none in its signature either; this matches
+it.  What a simulator build does carry is a __TEXT,__entitlements section,
+linked in -- see SIMULATED-ENTITLEMENTS-LINK-FLAGS."
   (let ((e (spec-entitlements spec)))
     (etypecase e
       (null nil)

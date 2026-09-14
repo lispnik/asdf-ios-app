@@ -172,9 +172,54 @@ application's library, then ECL's modules, then ECL itself."
                        collect (format nil "-Wl,-force_load,~a"
                                        (uiop:native-namestring library)))
                  (embedded-framework-link-flags spec)
+                 (simulated-entitlements-link-flags spec)
                  (spec-link-flags spec))
          :echo-error t)
     output))
+
+;;; ------------------------------------------------------------------
+;;; simulated entitlements
+;;;
+;;; A simulator app is signed with no entitlements (sign.lisp says why), yet
+;;; the simulator's securityd still wants to know the app's identifier and
+;;; keychain access group before SecItemAdd will store anything: without
+;;; them every Keychain call fails with errSecMissingEntitlement, -34018.
+;;; Xcode squares this by LINKING the entitlements into the binary, as a
+;;; __TEXT,__entitlements section (its *-Simulated.xcent file), where the
+;;; simulator reads them and SpringBoard, which only checks the signature,
+;;; never sees them.  Measured: with the section and an ad-hoc signature
+;;; the app launches and the Keychain works; with the same plist in the
+;;; signature instead, SpringBoard refuses the launch.
+;;;
+;;; The prefix on the identifier is the team when one is given and a
+;;; placeholder otherwise; the simulator does not check it, only that the
+;;; access group and the identifier agree.
+
+(defun simulated-entitlements-form (spec)
+  (let ((app-id (format nil "~a.~a" (or (spec-team-id spec) "SIMULATOR")
+                        (spec-identifier spec))))
+    `(:dict ("application-identifier" . ,app-id)
+            ("keychain-access-groups" . (:array ,app-id)))))
+
+(defun simulated-entitlements-link-flags (spec)
+  "The -sectcreate that embeds a simulator build's entitlements, or nothing.
+
+:IOS-DEFAULT derives them from the identifier; a file is embedded as it is;
+NIL embeds nothing.  Device builds get theirs from the signature and none of
+this."
+  (let ((e (spec-entitlements spec)))
+    (when (and (platform-simulator-p (spec-platform spec)) e)
+      (let ((path (etypecase e
+                    (pathname e)
+                    (string (pathname e))
+                    (symbol
+                     (assert (eq e :ios-default))
+                     (let ((path (sibling-file (spec-root spec)
+                                               "simulated-entitlements.plist")))
+                       (lint-plist (write-plist (simulated-entitlements-form spec) path))
+                       path)))))
+        (list (format nil "-Wl,-sectcreate,__TEXT,__entitlements,~a"
+                      (uiop:native-namestring path)))))))
 
 ;;; ------------------------------------------------------------------
 ;;; embedded frameworks

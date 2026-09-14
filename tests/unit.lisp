@@ -253,6 +253,31 @@ for -- which is exactly the sort of test that passes while proving nothing."
   (is (null (app::entitlements-file (test-spec))))
   (is (null (app::entitlements-file (test-spec :entitlements nil)))))
 
+(deftest a-simulator-build-links-its-entitlements-in-instead
+  "What the signature leaves out the linker puts in: a __TEXT,__entitlements
+section naming the app and its keychain access group, without which the
+simulator's Keychain answers -34018 to everything.  The identifier and the
+group must agree, the team prefixes both when there is one, and a device
+build gets nothing from here -- its entitlements are in the signature."
+  (let ((form (app::simulated-entitlements-form (test-spec))))
+    (is= "SIMULATOR.org.example.fixture" (plist-entry form "application-identifier"))
+    (is (equal '(:array "SIMULATOR.org.example.fixture")
+               (plist-entry form "keychain-access-groups"))))
+  (is= "TEAM123.org.example.fixture"
+       (plist-entry (app::simulated-entitlements-form (test-spec :team-id "TEAM123"))
+                    "application-identifier"))
+  (let ((flags (app::simulated-entitlements-link-flags (test-spec))))
+    (is= 1 (length flags))
+    (is (uiop:string-prefix-p "-Wl,-sectcreate,__TEXT,__entitlements," (first flags)))
+    (is (probe-file (subseq (first flags)
+                            (length "-Wl,-sectcreate,__TEXT,__entitlements,")))))
+  (is (null (app::simulated-entitlements-link-flags (test-spec :entitlements nil))))
+  (is (null (app::simulated-entitlements-link-flags
+             (test-spec :platform (app::find-platform :device)
+                        :entitlements :ios-default))))
+  (is (equal '("-Wl,-sectcreate,__TEXT,__entitlements,/tmp/own.plist")
+             (app::simulated-entitlements-link-flags (test-spec :entitlements "/tmp/own.plist")))))
+
 ;;; ------------------------------------------------------------------
 ;;; the child bootstrap
 ;;;

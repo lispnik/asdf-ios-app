@@ -106,11 +106,59 @@ you can write. There are more below.
   <td><img src="doc/screenshots/mosaic.png" width="210" alt="A grid of coloured tiles of different sizes, each a package name and its symbol count."></td>
   <td><img src="doc/screenshots/sensors.png" width="210" alt="A grey disc with a blue bubble, a reading line, and buttons for a haptic tap and Face ID."></td>
 </tr>
+<tr>
+  <th align="center">ink</th>
+  <th align="center">photos</th>
+  <th align="center">agenda</th>
+</tr>
+<tr>
+  <td><img src="doc/screenshots/ink.png" width="210" alt="A drawing canvas holding an indigo spiral, under it a line with the drawing's bounds and byte count, then a small rendering of the same spiral and buttons for Spiral, Clear and Save."></td>
+  <td><img src="doc/screenshots/photos.png" width="210" alt="The system photo picker over the app, showing the simulator's sample photos with a pattern of coloured interference rings among them, the picture Lisp drew and added."></td>
+  <td><img src="doc/screenshots/agenda.png" width="210" alt="A monospaced listing: THIS WEEK with two events and their times, then CONTACTS grouped under initials; above it a count of events and contacts, below a button to add a meeting."></td>
+</tr>
+<tr>
+  <th align="center">map</th>
+  <th align="center">editor</th>
+  <th align="center">traits</th>
+</tr>
+<tr>
+  <td><img src="doc/screenshots/map.png" width="210" alt="A map with a pink figure-of-eight route drawn around a pin, under a line giving the route's point count and the coordinates."></td>
+  <td><img src="doc/screenshots/editor.png" width="210" alt="A text view of Lisp source with parentheses coloured by depth, strings in red, comments in grey and keywords in purple, a matching pair of parentheses highlighted in yellow, and below it the result of evaluating the buffer."></td>
+  <td><img src="doc/screenshots/traits.png" width="210" alt="Ten coloured tiles in five columns on a light background, under a line reading light, text L, compact width, 3x, 0 changes."></td>
+</tr>
+<tr>
+  <th align="center">compute</th>
+  <th align="center">report</th>
+  <th align="center">keychain</th>
+</tr>
+<tr>
+  <td><img src="doc/screenshots/compute.png" width="210" alt="A Julia set fractal in orange, yellow and blue filling a square, under it a line naming the parameter, the size and the milliseconds the GPU took."></td>
+  <td><img src="doc/screenshots/report.png" width="210" alt="A Quick Look preview of a one-page PDF titled The image, as a report, with a bar chart of package symbol counts in eight colours and a footer line."></td>
+  <td><img src="doc/screenshots/keychain.png" width="210" alt="A twelve-character token in monospace and the line launch 5 of this install, under it a status line saying it was read back from the Keychain, and buttons to read again or forget it."></td>
+</tr>
+<tr>
+  <th align="center">serve</th>
+  <th align="center">peers</th>
+  <th align="center">coredata</th>
+</tr>
+<tr>
+  <td><img src="doc/screenshots/serve.png" width="210" alt="A status line reading listener ready on port 8080 and three requests served, over a log of request lines with times."></td>
+  <td><img src="doc/screenshots/peers.png" width="210" alt="A log on one phone: advertising, found the other peer and invited it, connected, then a form sent and the other phone's answer, and a form the other phone asked with this phone's answer; a field holding a form and an Ask peers button."></td>
+  <td><img src="doc/screenshots/coredata.png" width="210" alt="A table of notes each with its word count and time, under a text field and an Add button, and a status line counting the notes and how many a fetch with a predicate matched."></td>
+</tr>
+<tr>
+  <th align="center">sprites</th>
+  <th align="center">coreml</th>
+</tr>
+<tr>
+  <td><img src="doc/screenshots/sprites.png" width="210" alt="A dark scene with four grey circular obstacles, a faint blue path threading between them, a gold leader square on the path and a flock of coloured squares following it."></td>
+  <td><img src="doc/screenshots/coreml.png" width="210" alt="A monospaced table of six triangle base and height pairs with the model's predicted area beside the exact area and the difference, under a line naming the model's inputs and outputs."></td>
+</tr>
 </table>
 
 Every one of these is a screenshot of the simulator, from a clean install of a
 build made by `asdf:make` — there is no Xcode project anywhere in the
-repository. Five of them are written against
+repository. All but four of them are written against
 [objc](https://github.com/lispnik/objc), the LispWorks-compatible Objective-C
 interface, and its `objc/uikit` conveniences — see below.
 
@@ -138,6 +186,20 @@ interface, and its `objc/uikit` conveniences — see below.
 | `live` | a canvas, a caption and a button | programming the phone from Emacs over the USB cable: SLY connected to the app on a device, and every function on the screen redefined without a rebuild — see [`examples/live/`](examples/live/) and its `tour.lisp` |
 | `abi-probe` | a report, not an interface | exactly which structs `si:call-cfun` can carry, measured |
 | `closure-probe` | a report, not an interface | what ECL's dynamic FFI can do on a phone, measured on an iPhone 16e: a libffi closure, a `CGRect` in and an `NSRange` out through one, and a variadic call |
+| `ink` | a drawing canvas and three buttons | PencilKit: a `PKCanvasView` whose delegate is a Lisp class, the drawing's bounds read as a `CGRect`, the strokes rendered to an image by Lisp's request and the data kept across launches |
+| `photos` | the system photo picker over a rendered image | PhotoKit: `PHPickerViewController` with a Lisp delegate, add-only authorisation asked for through a block, and an image drawn pixel by pixel in Lisp saved into the library through a change block |
+| `agenda` | this week's events and the contacts, grouped | EventKit and Contacts: access asked for through blocks, an event created and the week fetched with a predicate, contacts enumerated through a block and grouped by initial in Lisp |
+| `map` | a map with a route around the phone | MapKit and CoreLocation: the location delegate and the overlay renderer delegate are Lisp classes, the route a lemniscate computed in Lisp into a C array, `CLLocationCoordinate2D` read by value as a vector and `MKCoordinateRegion` passed as a nested one |
+| `editor` | a Lisp editor | TextKit: a `UITextView` re-coloured on every keystroke by a Lisp tokenizer through `NSAttributedString`, the parenthesis under the cursor matched, and the buffer evaluated in the image it runs in |
+| `traits` | coloured tiles that re-lay themselves | the trait collection: dark mode, text size, size class and scale read in Lisp, and `registerForTraitChanges:withHandler:` given a Lisp block that re-lays the screen when the system flips them |
+| `compute` | a Julia set | Metal: a compute kernel compiled from a string at run time, its parameters and buffer from Lisp, `MTLSize` threadgroups passed as vectors, and the output buffer turned into a `CGImage` |
+| `report` | a PDF, previewed | `UIGraphicsPDFRenderer` drawing a bar chart of the image inside its actions block, which is a Lisp closure; Quick Look previewing it through a Lisp data source; the share sheet offering it |
+| `keychain` | a token and a launch count | the Security framework's C API — `SecItemAdd`, `SecItemCopyMatching`, `SecItemUpdate`, `SecItemDelete` — with their `CFDictionary` queries built from Foundation objects; the entitlements the simulator's keychain wants, linked into the binary |
+| `serve` | a status line and a request log | Network.framework: an `nw_listener` whose connection, receive and send handlers are Lisp blocks on a dispatch queue, serving a page about the image to any browser and advertised over Bonjour |
+| `peers` | a log of the other phone's forms | MultipeerConnectivity: each phone advertises and browses, the invitation is answered by calling the block the framework handed over, and connected peers evaluate each other's forms |
+| `coredata` | a table of notes | Core Data with the model described in code: an entity and its attributes as objects, a persistent container loaded through a block, notes inserted, saved and fetched with a predicate and a sort |
+| `sprites` | a flock threading obstacles | SpriteKit and GameplayKit: agents steered by goals and weights chosen in Lisp, the scene's per-frame update a Lisp method, and a Lisp-built graph pathfound by GameplayKit |
+| `coreml` | a table of predictions beside exact answers | Core ML: a model trained by `build.sh` with Create ML and compiled by `coremlc`, shipped as a resource, loaded, and asked for predictions through feature providers built from Lisp numbers |
 
 Build any of them with `asdf:make`, with `examples/` on your source registry:
 
@@ -266,8 +328,17 @@ The request was denied by service delegate (SBMainWorkspace).
 ```
 
 which says nothing about entitlements and sends you to `Info.plist`. An
-Xcode-built simulator app carries none either. Device builds get theirs *from*
-the profile, which is the only authority on what they may be.
+Xcode-built simulator app carries none in its signature either. Device builds
+get theirs *from* the profile, which is the only authority on what they may be.
+
+What a simulator build does carry is its entitlements **linked into the
+binary**, as a `__TEXT,__entitlements` section, which is what Xcode's
+`-Simulated.xcent` file is for. The simulator's `securityd` reads the
+`application-identifier` and `keychain-access-groups` there, and without them
+every Keychain call fails with `errSecMissingEntitlement`, -34018; SpringBoard
+checks only the signature and never sees them. `:entitlements :ios-default`
+derives the pair from the bundle identifier, a file is embedded as it is, and
+`nil` embeds nothing.
 
 ## Layout produced
 
@@ -320,7 +391,7 @@ lands on the `Info.plist`. Reserved names are refused.
 | `:remote-repl` | `nil` | `t`, a port, or a plist; see below |
 | `:code-signing-identity` | `:automatic` | ad hoc on simulator; required on device |
 | `:development-team`, `:provisioning-profile` | — | device |
-| `:entitlements` | `:ios-default` | none on simulator, from the profile on device |
+| `:entitlements` | `:ios-default` | linked into the binary on simulator, from the profile in the signature on device |
 | `:get-task-allow` | `t` | lets a debugger attach; a distribution build must not |
 
 `:entry-point` is stock ASDF, and **means something different here**. It is not a
