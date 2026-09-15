@@ -865,3 +865,18 @@ Wireless iPhone         Wireless.coredevice.local              11111111-2222-333
 "))
     (is= '("DB2F98D9-56D7-5336-BC63-43BE2E5AF8DA" "11111111-2222-3333-4444-555555555555")
          (app::parse-device-listing listing))))
+
+
+(deftest the-device-listing-of-xcode-27-parses-too
+  "Xcode 27 shows a phone's 25-character UDID with (UDID) after it where the
+36-character CoreDevice id used to be, and lists simulators alongside with a
+Reality column.  The phone is found by either spelling; a simulator is not a
+device to install to; a paired watch on the unfiltered table is not iOS and
+the filter keeps it out, but even listed it has no identifier shape we take."
+  (let ((listing "Name               Hostname   Identifier                                    State       Model                        Reality
+----------------   --------   -------------------------------------------   ---------   --------------------------   ---------
+Matthew’s iPhone              00008140-0004705C0A0A801C (UDID)              connected   iPhone 16e (iPhone17,5)      physical
+iPhone 17                     A2816926-01DB-401B-901F-D97788D721C5 (UDID)   shutdown    iPhone 17 (iPhone18,3)       simulated
+iPhone 17 Pro                 998CFBA5-866D-4AE8-B6D8-CB6B11E12952 (UDID)   available   iPhone 17 Pro (iPhone18,1)   simulated
+"))
+    (is= '("00008140-0004705C0A0A801C") (app::parse-device-listing listing))))

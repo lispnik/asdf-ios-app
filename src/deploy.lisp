@@ -143,22 +143,32 @@ app's container, which the runtime keeps for exactly this."
           (simulator-console-log identifier :device device)
           output))))
 
+(defun device-identifier-token-p (token)
+  "Either spelling devicectl has used for a device's identifier: the
+36-character CoreDevice id of Xcode 26 and earlier, or the 25-character
+UDID -- eight hex digits, a dash, sixteen -- that Xcode 27's table shows
+with `(UDID)\' after it.  devicectl accepts either on --device."
+  (or (and (= (length token) 36) (char= #\- (char token 8)))
+      (and (= (length token) 25) (char= #\- (char token 8))
+           (every (lambda (c) (or (digit-char-p c 16) (char= c #\-))) token))))
+
 (defun parse-device-listing (text)
-  "The identifiers of the devices in devicectl's table that can be reached now.
+  "The identifiers of the physical devices in devicectl's table that can be
+reached now.
 
 A device that can be installed to reports itself as `available (paired)\'
 when it is on the network and `connected\' when it is on a cable; one that
 cannot says `unavailable\', which contains the first of those words and is
-why the test is not a substring search for it."
+why the test is not a substring search for it.  Xcode 27's table also lists
+simulators, with `simulated\' in a Reality column, and those are not
+devices to install to from here."
   (loop for line in (uiop:split-string text :separator '(#\Newline))
         for fields = (tokens line)
         when (and (or (member "available" fields :test #'string=)
                       (member "connected" fields :test #'string=))
-                  (not (member "unavailable" fields :test #'string=)))
-          collect (find-if (lambda (token)
-                             (and (= (length token) 36)
-                                  (char= #\- (char token 8))))
-                           fields)))
+                  (not (member "unavailable" fields :test #'string=))
+                  (not (member "simulated" fields :test #'string=)))
+          collect (find-if #'device-identifier-token-p fields)))
 
 (defun available-devices ()
   "Physical iOS devices devicectl can install to, as identifiers.
