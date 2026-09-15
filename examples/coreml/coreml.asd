@@ -14,11 +14,21 @@
   :bundle-identifier "org.asdf-ios-app.coreml"
   :bundle-name "CoreML"
   :bundle-executable "coreml"
-  :bundle-platforms (:simulator)
+  ;; The device is built for only when it can be signed for, which is when
+  ;; the environment says how -- as sensors and closure-probe do.
+  :bundle-platforms #.(if (uiop:getenv "IOS_SIGNING_IDENTITY")
+                          '(:simulator :device)
+                          '(:simulator))
   :bundle-orientations (:portrait)
   :bundle-frameworks ("UIKit" "Foundation" "CoreGraphics" "CoreML")
   ;; The compiled model, from build.sh: Create ML trains it, coremlc compiles it.
   :bundle-resources ("Area.mlmodelc")
   :perform (asdf::ios-app-op :before (o c)
              (uiop:run-program (list "/bin/sh" (namestring (asdf:system-relative-pathname c "build.sh")))
-                               :output t :error-output t)))
+                               :output t :error-output t))
+
+  ;; A device build must be signed. Read from the environment at the time
+  ;; this file is read, so that nobody's identity is committed here.
+  :code-signing-identity #.(or (uiop:getenv "IOS_SIGNING_IDENTITY") :automatic)
+  :development-team #.(uiop:getenv "IOS_DEVELOPMENT_TEAM")
+  :provisioning-profile #.(uiop:getenv "IOS_PROVISIONING_PROFILE"))

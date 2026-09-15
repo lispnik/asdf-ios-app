@@ -14,6 +14,16 @@
   :bundle-identifier "org.asdf-ios-app.report"
   :bundle-name "Report"
   :bundle-executable "report"
-  :bundle-platforms (:simulator)
+  ;; The device is built for only when it can be signed for, which is when
+  ;; the environment says how -- as sensors and closure-probe do.
+  :bundle-platforms #.(if (uiop:getenv "IOS_SIGNING_IDENTITY")
+                          '(:simulator :device)
+                          '(:simulator))
   :bundle-orientations (:portrait)
-  :bundle-frameworks ("UIKit" "Foundation" "CoreGraphics" "QuickLook"))
+  :bundle-frameworks ("UIKit" "Foundation" "CoreGraphics" "QuickLook")
+
+  ;; A device build must be signed. Read from the environment at the time
+  ;; this file is read, so that nobody's identity is committed here.
+  :code-signing-identity #.(or (uiop:getenv "IOS_SIGNING_IDENTITY") :automatic)
+  :development-team #.(uiop:getenv "IOS_DEVELOPMENT_TEAM")
+  :provisioning-profile #.(uiop:getenv "IOS_PROVISIONING_PROFILE"))
