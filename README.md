@@ -153,7 +153,7 @@ you can write. There are more below.
 </tr>
 <tr>
   <td><img src="doc/screenshots/sprites.png" width="210" alt="A dark scene with four grey circular obstacles, a faint blue path threading between them, a gold leader square on the path and a flock of coloured squares following it."></td>
-  <td><img src="doc/screenshots/coreml.png" width="210" alt="A monospaced table of six triangle base and height pairs with the model's predicted area beside the exact area and the difference, under a line naming the model's inputs and outputs."></td>
+  <td><img src="doc/screenshots/coreml.png" width="210" alt="A monospaced table with a header row, base, height, model, exact and off by, and six rows of triangle dimensions with the model's predicted area beside the exact area and the difference, under a line naming the model's inputs and outputs."></td>
   <td><img src="doc/screenshots/closure-probe.png" width="210" alt="A monospaced report: five numbered checks of a libffi closure, each marked correct, and the line a libffi closure works on this device."></td>
 </tr>
 </table>

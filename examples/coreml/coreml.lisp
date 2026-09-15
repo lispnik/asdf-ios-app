@@ -67,10 +67,13 @@
 (defparameter +questions+ '((3 4) (10 10) (7.5 2) (19 18) (1 1) (12.5 6.4)))
 
 (defun ask-everything ()
-  (let ((lines (loop for (base height) in +questions+
-                     collect (multiple-value-bind (predicted exact) (predict-area base height)
-                               (format nil "base ~5,1f height ~5,1f  model ~7,2f  exact ~7,2f  off by ~5,2f"
-                                       base height predicted exact (abs (- predicted exact)))))))
+  ;; Columns under a header, forty characters wide: a phone shows about
+  ;; fifty of this font across, and a row that names each column wrapped.
+  (let ((lines (cons (format nil "~6@a ~7@a ~8@a ~8@a ~7@a" "base" "height" "model" "exact" "off by")
+                     (loop for (base height) in +questions+
+                           collect (multiple-value-bind (predicted exact) (predict-area base height)
+                                     (format nil "~6,1f ~7,1f ~8,2f ~8,2f ~7,2f"
+                                             base height predicted exact (abs (- predicted exact))))))))
     (objc:invoke *text* "setText:" (format nil "~{~a~%~}" lines))
     (dolist (line lines) (format t "COREML: ~a~%" line))
     (finish-output)

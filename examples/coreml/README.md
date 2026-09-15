@@ -2,7 +2,7 @@
 
 A Core ML model, trained on the Mac, run from Lisp on the phone.
 
-<img src="../../doc/screenshots/coreml.png" width="300" alt="A monospaced table of six triangle base and height pairs with the model's predicted area beside the exact area and the difference, under a line naming the model's inputs and outputs.">
+<img src="../../doc/screenshots/coreml.png" width="300" alt="A monospaced table with a header row, base, height, model, exact and off by, and six rows of triangle dimensions with the model's predicted area beside the exact area and the difference, under a line naming the model's inputs and outputs.">
 
 The model is a boosted-tree regressor that `build.sh` trains with Create
 ML, on the Mac, to give the area of a triangle from its base and height,
