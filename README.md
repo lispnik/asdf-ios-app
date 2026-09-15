@@ -156,11 +156,21 @@ you can write. There are more below.
   <td><img src="doc/screenshots/coreml.png" width="210" alt="A monospaced table with a header row, base, height, model, exact and off by, and six rows of triangle dimensions with the model's predicted area beside the exact area and the difference, under a line naming the model's inputs and outputs."></td>
   <td><img src="doc/screenshots/closure-probe.png" width="210" alt="A monospaced report: five numbered checks of a libffi closure, each marked correct, and the line a libffi closure works on this device."></td>
 </tr>
+<tr>
+  <th align="center">favourites</th>
+</tr>
+<tr>
+  <td><img src="doc/screenshots/favourites.png" width="210" alt="On a phone, in dark mode: a table of songs, each with its artist, album, length and play count, under a status line saying 488 songs from the Favorite Songs playlist, first 200 listed, and above a Reload button."></td>
+</tr>
 </table>
 
-Every one of these is a screenshot of the simulator, from a clean install of a
-build made by `asdf:make` — there is no Xcode project anywhere in the
-repository. All but four of them are written against
+Every one of these but the last is a screenshot of the simulator, from a
+clean install of a build made by `asdf:make` — there is no Xcode project
+anywhere in the repository. The last, `favourites`, is the phone itself,
+captured with `devicectl`, because a simulator has no music library. The
+sixteen from `sensors` onwards have all run on an iPhone 16e, built with the
+signing environment set and judged by the console each app keeps in its own
+container — see [Deploying](#deploying). All but four of them are written against
 [objc](https://github.com/lispnik/objc), the LispWorks-compatible Objective-C
 interface, and its `objc/uikit` conveniences — see below.
 
@@ -202,6 +212,7 @@ interface, and its `objc/uikit` conveniences — see below.
 | `coredata` | a table of notes | Core Data with the model described in code: an entity and its attributes as objects, a persistent container loaded through a block, notes inserted, saved and fetched with a predicate and a sort |
 | `sprites` | a flock threading obstacles | SpriteKit and GameplayKit: agents steered by goals and weights chosen in Lisp, the scene's per-frame update a Lisp method, and a Lisp-built graph pathfound by GameplayKit |
 | `coreml` | a table of predictions beside exact answers | Core ML: a model trained by `build.sh` with Create ML and compiled by `coremlc`, shipped as a resource, loaded, and asked for predictions through feature providers built from Lisp numbers |
+| `favourites` | the songs favourited in Music | MediaPlayer: the library's authorisation asked for through a block, the Favorite Songs playlist found among the playlists with `MPMediaQuery`, each song read property by property through `valueForProperty:`, and a table whose data source is a Lisp class; the phone's own screenshot, since a simulator has no library |
 
 Build any of them with `asdf:make`, with `examples/` on your source registry:
 
