@@ -13,9 +13,9 @@ weights Lisp chose. The leader follows a path `GKObstacleGraph` found
 around obstacles Lisp laid out. `vector_float2`, GameplayKit's two-float
 SIMD type, is one Objective-C cannot describe: Clang encodes it as
 nothing, so the runtime's signature for `setPosition:` has no argument
-at all. The example spells the signature itself, with objc's list form
-of a method name, and carries the vector as the double occupying the
-same eight bytes, which travels in the same SIMD register.
+at all. objc notices the hole and asks to be told; the example declares
+the three signatures once with `declare-objc-signature`, and from then
+on a `vector_float2` goes in and comes out as a Lisp vector.
 
 ```lisp
 (asdf:make "sprites")

@@ -37,33 +37,17 @@
 ;;; vector_float2, which Objective-C cannot describe
 ;;;
 ;;; GameplayKit's positions are SIMD vector_float2s, and Clang encodes a SIMD
-;;; type as NOTHING: -[GKAgent2D setPosition:] is "v24@0:816", an empty
-;;; type between the offsets, so the runtime's signature says the method
-;;; takes no arguments at all.  The bridge's list form of a method name is
-;;; for exactly this -- the signature spelled out where the runtime cannot --
-;;; and the type to spell is :double: a vector_float2 is eight bytes that
-;;; travel in a SIMD register, which is precisely how a double travels on
-;;; arm64 and x86-64 alike.  So a point goes across as the double that
-;;; occupies the same eight bytes, and comes back the same way.
+;;; type as NOTHING: -[GKAgent2D setPosition:] is "v24@0:816", an empty type
+;;; between the offsets, so the runtime's signature says the method takes no
+;;; arguments at all.  objc notices the hole and asks to be told the
+;;; signature once, by selector; after that a vector_float2 goes in and
+;;; comes out as a Lisp vector, carried across the FFI as the double that
+;;; occupies the same eight bytes -- one SIMD register either way.
 
-(defun simd2 (x y)
-  "The double whose eight bytes are the floats X and Y: a vector_float2."
-  (cffi:with-foreign-object (p :float 2)
-    (setf (cffi:mem-aref p :float 0) (float x 1.0)
-          (cffi:mem-aref p :float 1) (float y 1.0))
-    (cffi:mem-ref p :double)))
-
-(defun simd2-parts (double)
-  "The floats packed in DOUBLE by SIMD2, as (x . y)."
-  (cffi:with-foreign-object (p :double)
-    (setf (cffi:mem-ref p :double) double)
-    (cons (cffi:mem-aref p :float 0) (cffi:mem-aref p :float 1))))
-
-(defun set-simd-position (object x y)
-  (objc:invoke object '("setPosition:" (:double)) (simd2 x y)))
-
-(defun simd-position (object)
-  (simd2-parts (objc:invoke object '("position" () :result-type :double))))
+(objc:declare-objc-signature "setPosition:" '((:vector :float 2)))
+(objc:declare-objc-signature "position" '() :result-type '(:vector :float 2))
+(objc:declare-objc-signature "nodeWithPoint:" '((:vector :float 2))
+                             :result-type 'objc:objc-object-pointer)
 
 ;;; ------------------------------------------------------------------
 ;;; obstacles, a graph, and a path through it
@@ -79,15 +63,14 @@ graph takes polygon obstacles only, and SpriteKit makes those from the
 bounds of the nodes already drawn."
   (let* ((obstacles (objc:invoke "SKNode" "obstaclesFromNodeBounds:" (coerce obstacle-nodes 'vector)))
          (graph (objc:invoke "GKObstacleGraph" "graphWithObstacles:bufferRadius:" obstacles 24.0))
-         (node-with-point '("nodeWithPoint:" (:double) :result-type objc:objc-object-pointer))
-         (from (objc:invoke "GKGraphNode2D" node-with-point (simd2 30.0 30.0)))
-         (to (objc:invoke "GKGraphNode2D" node-with-point (simd2 (- +width+ 30) (- +height+ 30)))))
+         (from (objc:invoke "GKGraphNode2D" "nodeWithPoint:" #(30.0 30.0)))
+         (to (objc:invoke "GKGraphNode2D" "nodeWithPoint:" (vector (- +width+ 30) (- +height+ 30)))))
     (objc:invoke graph "connectNodeUsingObstacles:" from)
     (objc:invoke graph "connectNodeUsingObstacles:" to)
     (let ((nodes (objc:invoke graph "findPathFromNode:toNode:" from to)))
       (loop for i below (objc:invoke nodes "count")
             for node = (objc:invoke nodes "objectAtIndex:" i)
-            collect (simd-position node)))))
+            collect (let ((p (objc:invoke node "position"))) (cons (aref p 0) (aref p 1)))))))
 
 ;;; ------------------------------------------------------------------
 ;;; the scene: a Lisp subclass of SKScene, updated every frame
@@ -97,7 +80,7 @@ bounds of the nodes already drawn."
   (:objc-superclass-name "SKScene"))
 
 (defun agent-position (agent)
-  (simd-position agent))
+  (let ((p (objc:invoke agent "position"))) (cons (aref p 0) (aref p 1))))
 
 (objc:define-objc-method ("update:" :void)
     ((self flock-scene) (time :double))
@@ -128,7 +111,7 @@ bounds of the nodes already drawn."
 
 (defun make-agent (x y &key leader)
   (let ((agent (objc:alloc-init-object "GKAgent2D")))
-    (set-simd-position agent x y)
+    (objc:invoke agent "setPosition:" (vector x y))
     (objc:invoke agent "setMaxSpeed:" (if leader 70.0 (+ 80.0 (random 30.0))))
     (objc:invoke agent "setMaxAcceleration:" (if leader 40.0 60.0))
     (objc:invoke agent "setRadius:" 10.0)
@@ -171,7 +154,7 @@ unseen, separation included."
 
 (defun move-tracker ()
   (let ((target (nth *waypoint* *path*)))
-    (when target (set-simd-position *leader-tracker* (car target) (cdr target)))))
+    (when target (objc:invoke *leader-tracker* "setPosition:" (vector (car target) (cdr target))))))
 
 ;;; ------------------------------------------------------------------
 ;;; the scene, built
