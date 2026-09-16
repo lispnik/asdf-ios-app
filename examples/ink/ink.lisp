@@ -11,7 +11,7 @@
 (defpackage #:ink
   (:use #:cl)
   (:local-nicknames (#:ui #:uikit))
-  (:export #:start #:load-spiral #:clear #:save))
+  (:export #:start #:load-spiral #:load-kept #:clear #:save))
 
 (in-package #:ink)
 
@@ -65,14 +65,35 @@
   (objc:invoke *canvas* "setDrawing:" (objc:alloc-init-object "PKDrawing"))
   (describe-drawing))
 
+(defun kept-path ()
+  "Where SAVE keeps the drawing: Documents, which is where HOME points."
+  (namestring (merge-pathnames "kept.drawing" (user-homedir-pathname))))
+
 (defun save ()
-  "The drawing's bytes to Documents, where HOME points; loadable again."
-  (let ((path (namestring (merge-pathnames "kept.drawing" (user-homedir-pathname)))))
+  "The drawing's bytes to Documents.  Kept loads them again, and so does the
+next launch."
+  (let ((path (kept-path)))
     (objc:invoke (objc:invoke (objc:invoke *canvas* "drawing") "dataRepresentation")
                  "writeToFile:atomically:" path t)
     (format t "INK: saved ~a~%" path)
     (finish-output)
     path))
+
+(defun load-kept ()
+  "The drawing SAVE kept, back onto the canvas; NIL, and a line saying so,
+when nothing has been saved yet."
+  (let ((path (kept-path)))
+    (cond ((probe-file path)
+           (let* ((data (objc:invoke "NSData" "dataWithContentsOfFile:" path))
+                  (drawing (objc:invoke (objc:invoke "PKDrawing" "alloc") "initWithData:error:" data nil)))
+             (objc:invoke *canvas* "setDrawing:" drawing)
+             (format t "INK: kept drawing loaded from ~a~%" path)
+             (describe-drawing)
+             t))
+          (t
+           (format t "INK: nothing kept yet; Save first~%")
+           (finish-output)
+           nil))))
 
 ;;; ------------------------------------------------------------------
 ;;; the screen
@@ -124,10 +145,12 @@
     ;; Buttons.
     (objc:invoke row "setAxis:" 0)
     (objc:invoke row "setSpacing:" 16)
-    (dolist (entry (list (cons "Spiral" #'load-spiral) (cons "Clear" #'clear) (cons "Save" #'save)))
+    (dolist (entry (list (cons "Spiral" #'load-spiral) (cons "Kept" #'load-kept)
+                         (cons "Clear" #'clear) (cons "Save" #'save)))
       (let ((button (ui:system-button (car entry))))
         (ui:on-tap button (let ((function (cdr entry))) (lambda (sender) (declare (ignore sender)) (funcall function))))
         (objc:invoke row "addArrangedSubview:" button)))
     (objc:invoke column "addArrangedSubview:" row)
-    (load-spiral)
+    ;; What was kept last time, or the spiral the first time.
+    (if (probe-file (kept-path)) (load-kept) (load-spiral))
     (values)))
