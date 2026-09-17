@@ -158,19 +158,23 @@ you can write. There are more below.
 </tr>
 <tr>
   <th align="center">favourites</th>
+  <th align="center">exceptions</th>
 </tr>
 <tr>
   <td><img src="doc/screenshots/favourites.png" width="210" alt="On a phone, in dark mode: a table of songs, each with its artist, album, length and play count, under a status line saying 488 songs from the Favorite Songs playlist, first 200 listed, and above a Reload button."></td>
+  <td><img src="doc/screenshots/exceptions.png" width="210" alt="On a phone, in dark mode: four lines of text, an NSRangeException with Cocoa's reason for it, an NSInvalidArgumentException from an unrecognized selector, an NSError from a missing file with NSCocoaErrorDomain 260, and the line the next send works: T."></td>
 </tr>
 </table>
 
-Every one of these but the last is a screenshot of the simulator, from a
+Every one of these but the last two is a screenshot of the simulator, from a
 clean install of a build made by `asdf:make` — there is no Xcode project
-anywhere in the repository. The last, `favourites`, is the phone itself,
-captured with `devicectl`, because a simulator has no music library. The
-sixteen from `sensors` onwards have all run on an iPhone 16e, built with the
-signing environment set and judged by the console each app keeps in its own
-container — see [Deploying](#deploying). All but four of them are written against
+anywhere in the repository. The last two are the phone itself, captured with
+`devicectl`: `favourites` because a simulator has no music library, and
+`exceptions` because a static device image with libffi callbacks and no C
+compiler is the build in which catching an Objective-C exception was least
+certain to work. The seventeen from `sensors` onwards have all run on an
+iPhone 16e, built with the signing environment set and judged by the console
+each app keeps in its own container — see [Deploying](#deploying). All but four of them are written against
 [objc](https://github.com/lispnik/objc), the LispWorks-compatible Objective-C
 interface, and its `objc/uikit` conveniences — see below.
 
@@ -213,6 +217,7 @@ interface, and its `objc/uikit` conveniences — see below.
 | `sprites` | a flock threading obstacles | SpriteKit and GameplayKit: agents steered by goals and weights chosen in Lisp, the scene's per-frame update a Lisp method, and a Lisp-built graph pathfound by GameplayKit |
 | `coreml` | a table of predictions beside exact answers | Core ML: a model trained by `build.sh` with Create ML and compiled by `coremlc`, shipped as a resource, loaded, and asked for predictions through feature providers built from Lisp numbers |
 | `favourites` | the songs favourited in Music | MediaPlayer: the library's authorisation asked for through a block, the Favorite Songs playlist found among the playlists with `MPMediaQuery`, each song read property by property through `valueForProperty:`, and a table whose data source is a Lisp class; the phone's own screenshot, since a simulator has no library |
+| `exceptions` | three failures, caught | objc's exception bridging on a device: an `NSRangeException` and an `NSInvalidArgumentException` raised inside sends and caught as `objc:objc-exception` with Cocoa's own reasons, an `NSError` from `objc:invoke-with-error`, and a send afterwards to show the app is whole; the phone's own screenshot, since the static image is the build that mattered |
 
 Build any of them with `asdf:make`, with `examples/` on your source registry:
 
