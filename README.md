@@ -716,6 +716,11 @@ refused: the two are indistinguishable from the outside -- same layout, same
 keys, an ad-hoc signature that verifies -- and the only symptom of shipping the
 wrong one is a rejected upload much later.
 
+Entitlements are taken from the profile, so an App Store profile's
+`beta-reports-active` -- what lets a build be tested in TestFlight -- is
+carried into the signature, and `get-task-allow`, which a distribution build
+may not have, is dropped by `:get-task-allow nil`.
+
 Device builds also carry the `DT*` provenance keys (`DTPlatformName`,
 `DTSDKBuild`, `DTXcode`, `BuildMachineOSBuild`), which submission requires. The
 simulator gets none: they would be noise, and computing them means shelling out

@@ -107,7 +107,12 @@ at build time."
              (application-identifier
                (profile-value decoded "Entitlements.application-identifier"))
              (team (profile-value decoded
-                                  "Entitlements.com.apple.developer.team-identifier")))
+                                  "Entitlements.com.apple.developer.team-identifier"))
+             ;; An App Store profile carries beta-reports-active, which is
+             ;; what lets a build be tested in TestFlight. It is the
+             ;; profile's to grant; the binary must claim it to use it.
+             (beta (equal "true" (profile-value decoded
+                                                "Entitlements.beta-reports-active"))))
         (unless application-identifier
           (barf "~a has no application-identifier entitlement; it does not look ~
                  like an iOS provisioning profile."
@@ -121,7 +126,8 @@ at build time."
                    (string/= team (spec-team-id spec)))
           (note "profile team is ~a but :DEVELOPMENT-TEAM says ~a"
                 team (spec-team-id spec)))
-        (list :application-identifier application-identifier :team team)))))
+        (list :application-identifier application-identifier :team team
+              :beta-reports-active beta)))))
 
 (defun specialised-application-identifier (application-identifier bundle-identifier team)
   "The application-identifier entitlement for THIS app, from the profile's.
@@ -148,6 +154,24 @@ been checked against this bundle by CHECK-PROVISIONING-PROFILE."
         (format nil "~a.~a" (or team prefix) bundle-identifier)
         application-identifier)))
 
+(defun entitlements-form (details bundle-identifier get-task-allow-p)
+  "The entitlements for BUNDLE-IDENTIFIER, given a profile's DETAILS.
+
+Everything the binary claims is the profile's to grant, so everything here
+comes from it -- except get-task-allow, which is ours to choose."
+  `(:dict
+    ("application-identifier"
+     . ,(specialised-application-identifier
+         (getf details :application-identifier)
+         bundle-identifier
+         (getf details :team)))
+    ,@(when (getf details :team)
+        `(("com.apple.developer.team-identifier" . ,(getf details :team))))
+    ,@(when (getf details :beta-reports-active)
+        `(("beta-reports-active" . :true)))
+    ,@(when get-task-allow-p
+        `(("get-task-allow" . :true)))))
+
 (defun profile-entitlements-form (spec)
   "Entitlements derived FROM the profile rather than guessed.
 
@@ -157,16 +181,7 @@ what lets a debugger attach, and a distribution build must not have it."
   (let ((details (check-provisioning-profile spec)))
     (unless details
       (barf "A device build needs :PROVISIONING-PROFILE."))
-    `(:dict
-      ("application-identifier"
-       . ,(specialised-application-identifier
-           (getf details :application-identifier)
-           (spec-identifier spec)
-           (getf details :team)))
-      ,@(when (getf details :team)
-          `(("com.apple.developer.team-identifier" . ,(getf details :team))))
-      ,@(when (spec-get-task-allow-p spec)
-          `(("get-task-allow" . :true))))))
+    (entitlements-form details (spec-identifier spec) (spec-get-task-allow-p spec))))
 
 (defun effective-identity (spec)
   "The identity to sign with.

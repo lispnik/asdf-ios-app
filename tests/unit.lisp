@@ -453,6 +453,28 @@ build gets nothing from here -- its entitlements are in the signature."
   ;; malformed
   (is (not (app::application-identifier-matches-p "nodots" "com.example.app"))))
 
+(deftest entitlements-come-from-the-profile
+  ;; A wildcard profile names a pattern; the binary must claim the one app
+  ;; it is.
+  (is= '(:dict ("application-identifier" . "ABCDE12345.com.example.app")
+         ("com.apple.developer.team-identifier" . "ABCDE12345"))
+       (app::entitlements-form '(:application-identifier "ABCDE12345.*"
+                                 :team "ABCDE12345")
+                               "com.example.app" nil))
+  ;; A development build may be debugged.
+  (is= '(:dict ("application-identifier" . "ABCDE12345.com.example.app")
+         ("get-task-allow" . :true))
+       (app::entitlements-form '(:application-identifier "ABCDE12345.com.example.app")
+                               "com.example.app" t))
+  ;; An App Store profile grants beta-reports-active, which is what lets the
+  ;; build be tested in TestFlight; a binary that does not claim it is not
+  ;; testable there.
+  (is= '(:dict ("application-identifier" . "ABCDE12345.com.example.app")
+         ("beta-reports-active" . :true))
+       (app::entitlements-form '(:application-identifier "ABCDE12345.com.example.app"
+                                 :beta-reports-active t)
+                               "com.example.app" nil)))
+
 (deftest a-device-build-without-a-profile-is-refused
   (signals app::app-build-error
     (app::profile-entitlements-form
