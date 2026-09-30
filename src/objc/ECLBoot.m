@@ -112,7 +112,12 @@ static cl_object OnMainCall(cl_object thunk)
   ecl_set_option(ECL_OPT_TRAP_SIGILL, 0);
   ecl_set_option(ECL_OPT_TRAP_SIGBUS, 0);
   ecl_set_option(ECL_OPT_TRAP_SIGPIPE, 0);
-  ecl_set_option(ECL_OPT_TRAP_INTERRUPT_SIGNAL, 0);
+  /* NOT the interrupt signal.  It is not a fault the system raises but the
+     signal ECL sends to one of its own threads to run an interrupt there --
+     MP:INTERRUPT-PROCESS, and with it every Stop, ^C or timeout in Lisp.
+     Untrapped, the signal arrives with no handler and the interrupt is simply
+     lost: a form that never returns could not be stopped at all. */
+  ecl_set_option(ECL_OPT_TRAP_INTERRUPT_SIGNAL, 1);
   ecl_set_option(ECL_OPT_SIGNAL_HANDLING_THREAD, 0);
 
   /* static: cl_boot keeps this pointer rather than copying, and SI:ARGV reads
