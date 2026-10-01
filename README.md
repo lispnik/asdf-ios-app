@@ -391,7 +391,7 @@ lands on the `Info.plist`. Reserved names are refused.
 | `:bundle-launch-screen` | `t` | an empty `UILaunchScreen`; without it iOS letterboxes the app |
 | `:bundle-required-capabilities` | `("arm64")` | |
 | `:bundle-status-bar-hidden` | `nil` | |
-| `:bundle-url-schemes`, `:bundle-document-types`, `:bundle-category`, `:bundle-copyright` | — | |
+| `:bundle-url-schemes`, `:bundle-document-types`, `:bundle-category`, `:bundle-copyright` | — | a URL or document the system hands the app goes to `ios-app-runtime:*open-url-hook*`, a function of the URL as a string, set in the entry point; a file is readable only until it returns |
 | `:bundle-info-plist` | — | alist merged over the generated plist |
 | `:bundle-resources` | — | paths, or `(path . "destination")` |
 | `:bundle-interpreted` | — | systems shipped as source; see below |

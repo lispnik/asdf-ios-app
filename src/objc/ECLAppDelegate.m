@@ -32,7 +32,31 @@
 /* ------------------------------------------------------------------
  * The scene delegate: the window, the boot, and the entry point. */
 
+/* A URL the system handed the application, to Lisp.
+ *
+ * A document's URL is security scoped: the file can be read only between
+ * start and stop.  So access is held across the call, and what the hook wants
+ * of the file it takes before it returns -- IOS-APP-RUNTIME:*OPEN-URL-HOOK*
+ * says so.  The URL goes over as a string literal in a form; -absoluteString
+ * is percent-encoded, and the two characters that could still end the literal
+ * early are escaped anyway. */
+static void DeliverURL(NSURL *url)
+{
+  BOOL scoped = url.isFileURL && [url startAccessingSecurityScopedResource];
+  NSString *literal =
+    [[url.absoluteString stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
+      stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+  (void)[ECLBoot evaluate:[NSString stringWithFormat:
+                             @"(ios-app-runtime:deliver-url \"%@\")", literal]];
+  if (scoped) {
+    [url stopAccessingSecurityScopedResource];
+  }
+}
+
 @implementation ECLSceneDelegate
+{
+  BOOL _booted;
+}
 
 - (void)scene:(UIScene *)scene
     willConnectToSession:(UISceneSession *)session
@@ -70,6 +94,25 @@
   }
   if (controllerClass != Nil) {
     self.window.rootViewController = [[controllerClass alloc] init];
+  }
+
+  /* A URL that LAUNCHED the application arrives with the connection and by
+     no other route: -scene:openURLContexts: is not sent for it.  After the
+     entry point, which is where the hook is set. */
+  _booted = YES;
+  for (UIOpenURLContext *context in options.URLContexts) {
+    DeliverURL(context.URL);
+  }
+}
+
+/* A URL that arrives while the application is running. */
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)contexts
+{
+  if (!_booted) {
+    return;          /* the entry point failed; there is nobody to tell */
+  }
+  for (UIOpenURLContext *context in contexts) {
+    DeliverURL(context.URL);
   }
 }
 

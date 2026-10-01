@@ -26,7 +26,9 @@
            #:start-remote-repl
            #:*remote-repl-port*
            #:*console-log*
-           #:boot-failure))
+           #:boot-failure
+           #:*open-url-hook*
+           #:deliver-url))
 
 (in-package #:ios-app-runtime)
 
@@ -252,6 +254,37 @@ that into a condition costs a redefinition of an internal and is worth it."
                       not grant, and allocating one kills the process. ~
                       Compile this system ahead of time instead of listing it ~
                       in :BUNDLE-INTERPRETED."))))))
+
+;;; ------------------------------------------------------------------
+;;; URLs and documents
+;;;
+;;; The shipped scene delegate hands every URL the system gives the application
+;;; -- a link in one of its :BUNDLE-URL-SCHEMES, a document of one of its
+;;; :BUNDLE-DOCUMENT-TYPES -- to DELIVER-URL, whether it arrived with the
+;;; launch or while the app was running.  An application says what to do with
+;;; one by setting *OPEN-URL-HOOK*, in its entry point.
+
+(defvar *open-url-hook* nil
+  "A function of one argument, the URL as a string, or NIL.
+
+Called on the main thread.  A document's URL may be SECURITY SCOPED: the
+delegate has started access before the call and stops it when the call
+returns, so a file that is wanted afterwards -- by another thread, say -- has
+to be read or copied before the hook returns.")
+
+(defun deliver-url (url)
+  "Hand URL, a string, to *OPEN-URL-HOOK*.  True if there was one.
+
+What the scene delegate calls.  Without a hook the URL is logged and dropped:
+an app that declares a scheme and never says what to do with it should be able
+to find that out from its console."
+  (cond (*open-url-hook*
+         (funcall *open-url-hook* url)
+         t)
+        (t
+         (format t "~&ios-app-runtime: no *OPEN-URL-HOOK*, so nothing was done with ~a~%" url)
+         (finish-output)
+         nil)))
 
 (defvar *boot-failure* nil
   "What the entry point signalled, as text, or NIL.

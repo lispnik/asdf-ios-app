@@ -615,6 +615,15 @@ directory, and a unit test has no business on the network."
 ;;; ON-MAIN has to work with no application around it, because that is how the
 ;;; host tests -- and every system that builds UI -- can be exercised here.
 
+(deftest a-url-goes-to-the-hook-and-is-dropped-without-one
+  (let ((seen '()))
+    (let ((ios-app-runtime:*open-url-hook* (lambda (url) (push url seen))))
+      (is (ios-app-runtime:deliver-url "file:///tmp/a.lisp"))
+      (is= '("file:///tmp/a.lisp") seen))
+    (let ((ios-app-runtime:*open-url-hook* nil)
+          (*standard-output* (make-broadcast-stream)))
+      (is (not (ios-app-runtime:deliver-url "lisp://nothing"))))))
+
 (deftest on-main-without-a-hook-just-calls
   (let ((ios-app-runtime::*on-main-hook* nil))
     (is= 42 (ios-app-runtime:on-main (lambda () 42)))
